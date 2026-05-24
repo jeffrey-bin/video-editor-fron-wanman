@@ -111,7 +111,7 @@ export function EditorShell() {
     const response = await fetch("/api/exports", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ project_id: project.id, preset: "1080p_landscape", ignorePendingPlan: !plan }),
+      body: JSON.stringify({ project_id: project.id, preset: "1080p_landscape", timeline_version: project.timeline.version, ignorePendingPlan: !plan }),
     });
     const data = await response.json();
     if (!response.ok) {

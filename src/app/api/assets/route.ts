@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { addAssetToProject } from "@/server/state/in-memory";
+import { addAssetToProject } from "@/server/state/persistent";
 
 export async function POST(request: Request) {
   const form = await request.formData();

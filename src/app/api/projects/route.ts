@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { createDefaultProject, listAssets } from "@/server/state/in-memory";
+import { createDefaultProject, listAssets } from "@/server/state/persistent";
 
 export async function GET() {
-  const project = createDefaultProject();
-  return NextResponse.json({ project, assets: listAssets(project.id) });
+  const project = await createDefaultProject();
+  return NextResponse.json({ project, assets: await listAssets(project.id) });
 }

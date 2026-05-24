@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createPromptEditJob } from "@/server/state/in-memory";
+import { createPromptEditJob } from "@/server/state/persistent";
 
 export async function POST(request: Request) {
   try {
