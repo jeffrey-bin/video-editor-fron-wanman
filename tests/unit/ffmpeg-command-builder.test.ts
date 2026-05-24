@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildFfmpegCommand } from "@/server/ffmpeg/command-builder";
-import type { Timeline } from "@/types/editor";
+import type { MediaAsset, Timeline } from "@/types/editor";
 
 const timeline: Timeline = {
   version: 2,
@@ -13,24 +13,50 @@ const timeline: Timeline = {
   ],
 };
 
+const assets: MediaAsset[] = [
+  { id: "asset", projectId: "project", kind: "video", originalName: "demo.mp4", mimeType: "video/mp4", durationMs: 10000, filePath: "/tmp/demo.mp4" },
+];
+
 describe("ffmpeg command builder", () => {
   it("builds re-encoded command for filters, subtitles and landscape preset", () => {
-    const command = buildFfmpegCommand(timeline, "1080p_landscape", "public/exports/project/out.mp4");
+    const command = buildFfmpegCommand(timeline, "1080p_landscape", "public/exports/project/out.mp4", assets);
     expect(command.requiresReencode).toBe(true);
     expect(command.args.join(" ")).toContain("-vf");
     expect(command.args.join(" ")).toContain("loudnorm");
     expect(command.args.join(" ")).toContain("libx264");
+    expect(command.renderPlan.segments[0].inputPath).toBe("/tmp/demo.mp4");
   });
 
   it("uses stream copy for simple source preset", () => {
     const simple: Timeline = { ...timeline, tracks: [timeline.tracks[0] ? { ...timeline.tracks[0], clips: [{ ...timeline.tracks[0].clips[0], filters: undefined }] } : timeline.tracks[0]] };
-    const command = buildFfmpegCommand(simple, "source", "out.mp4");
+    const command = buildFfmpegCommand(simple, "source", "out.mp4", assets);
     expect(command.requiresReencode).toBe(false);
     expect(command.args).toContain("copy");
   });
 
   it("adds portrait crop for portrait preset", () => {
-    const command = buildFfmpegCommand(timeline, "1080p_portrait", "out.mp4");
+    const command = buildFfmpegCommand(timeline, "1080p_portrait", "out.mp4", assets);
     expect(command.args.join(" ")).toContain("crop=1080:1920");
+  });
+
+  it("expresses split/delete/move timelines as multiple render segments", () => {
+    const multi: Timeline = {
+      ...timeline,
+      tracks: [
+        {
+          id: "video_main",
+          kind: "video",
+          name: "视频",
+          clips: [
+            { id: "left", trackId: "video_main", kind: "video", assetId: "asset", startMs: 0, endMs: 2000, sourceStartMs: 0, sourceEndMs: 2000 },
+            { id: "right", trackId: "video_main", kind: "video", assetId: "asset", startMs: 2000, endMs: 5000, sourceStartMs: 7000, sourceEndMs: 10000 },
+          ],
+        },
+      ],
+    };
+    const command = buildFfmpegCommand(multi, "source", "out.mp4", assets);
+    expect(command.renderPlan.segments.map((segment) => segment.clipId)).toEqual(["left", "right"]);
+    expect(command.args.join(" ")).toContain("concat=n=2");
+    expect(command.requiresReencode).toBe(true);
   });
 });

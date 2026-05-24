@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { extractJson, generateCodexCliEditPlan, sanitizeEnv } from "@/server/llm/codex-cli-provider";
 import type { LlmEditRequest } from "@/server/llm/edit-plan-protocol";
 
@@ -23,8 +23,11 @@ const validPlan = JSON.stringify({
   unsupported_intents: [],
 });
 
-const mockSpawn = (stdoutText: string, code: number | null, stderrText = "") => {
-  return (() => {
+type SpawnCall = { command: string; args: string[]; options: { cwd: string; env: Record<string, string | undefined> } };
+
+const mockSpawn = (stdoutText: string, code: number | null, stderrText = "", calls: SpawnCall[] = []) => {
+  return ((command: string, args: string[], options: SpawnCall["options"]) => {
+    calls.push({ command, args, options });
     const child = new EventEmitter() as EventEmitter & { stdin: PassThrough; stdout: PassThrough; stderr: PassThrough; kill: () => void };
     child.stdin = new PassThrough();
     child.stdout = new PassThrough();
@@ -43,6 +46,23 @@ const mockSpawn = (stdoutText: string, code: number | null, stderrText = "") => 
   }) as never;
 };
 
+const hangingSpawn = (calls: SpawnCall[] = [], onKill: () => void = () => undefined) => {
+  return ((command: string, args: string[], options: SpawnCall["options"]) => {
+    calls.push({ command, args, options });
+    const child = new EventEmitter() as EventEmitter & { stdin: PassThrough; stdout: PassThrough; stderr: PassThrough; kill: () => void };
+    child.stdin = new PassThrough();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.kill = () => {
+      onKill();
+      child.stdout.end("");
+      child.stderr.end("secret stderr");
+      child.emit("close", null);
+    };
+    return child;
+  }) as never;
+};
+
 describe("codex cli provider", () => {
   it("extracts JSON from plain and markdown-wrapped stdout", () => {
     expect(extractJson(validPlan)).toEqual(JSON.parse(validPlan));
@@ -51,14 +71,27 @@ describe("codex cli provider", () => {
   });
 
   it("parses successful CLI output through schema", async () => {
-    const plan = await generateCodexCliEditPlan(request, { spawnImpl: mockSpawn(validPlan, 0), timeoutMs: 100 });
+    const calls: SpawnCall[] = [];
+    const plan = await generateCodexCliEditPlan(request, { spawnImpl: mockSpawn(validPlan, 0, "", calls), timeoutMs: 100, cwd: "/tmp/promptcut-codex-test", env: { PATH: "/bin", HOME: "/home/me", CODEX_HOME: "/secret", LANG: "C" } });
     expect(plan.summary).toBe("ok");
+    expect(calls[0].args).toEqual(["exec", "--model", "gpt-5.3-codex", "--sandbox", "read-only", "--ask-for-approval", "never", "--config", "sandbox_network_access=false", "--json"]);
+    expect(calls[0].options.cwd).toBe("/tmp/promptcut-codex-test");
+    expect(calls[0].options.env).toEqual({ PATH: "/bin", LANG: "C" });
   });
 
   it("reports invalid JSON, schema invalid, non-zero exit and sanitized env", async () => {
     await expect(generateCodexCliEditPlan(request, { spawnImpl: mockSpawn("bad", 0), timeoutMs: 100 })).rejects.toMatchObject({ code: "LLM_INVALID_JSON" });
     await expect(generateCodexCliEditPlan(request, { spawnImpl: mockSpawn(JSON.stringify({ status: "succeeded" }), 0), timeoutMs: 100 })).rejects.toMatchObject({ code: "LLM_SCHEMA_INVALID" });
     await expect(generateCodexCliEditPlan(request, { spawnImpl: mockSpawn("", 2, "boom"), timeoutMs: 100 })).rejects.toMatchObject({ code: "LLM_PROCESS_FAILED", stderr: "boom" });
-    expect(sanitizeEnv({ PATH: "/bin", SECRET: "no", CODEX_HOME: "/tmp" })).toEqual({ PATH: "/bin", CODEX_HOME: "/tmp" });
+    expect(sanitizeEnv({ PATH: "/bin", SECRET: "no", HOME: "/home/me", CODEX_HOME: "/tmp" })).toEqual({ PATH: "/bin" });
+  });
+
+  it("kills timed out Codex CLI processes and returns a sanitized user-facing error", async () => {
+    const killed = vi.fn();
+    await expect(generateCodexCliEditPlan(request, { spawnImpl: hangingSpawn([], killed), timeoutMs: 1 })).rejects.toMatchObject({
+      code: "LLM_TIMEOUT",
+      message: "Codex CLI 调用超时",
+    });
+    expect(killed).toHaveBeenCalled();
   });
 });

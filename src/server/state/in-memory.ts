@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { applyEditOperations, collectProjectContext, dryRunEditPlan } from "@/server/editor/timeline-ops";
 import { AVAILABLE_OPERATIONS } from "@/server/editor/operation-schema";
 import { EditPlanResponseSchema, LlmEditRequestSchema, type EditPlanResponse } from "@/server/llm/edit-plan-protocol";
 import { CodexCliError } from "@/server/llm/codex-cli-provider";
 import { generateConfiguredEditPlan, LlmProviderError } from "@/server/llm/provider";
 import { buildFfmpegCommand } from "@/server/ffmpeg/command-builder";
+import { executeExport } from "@/server/ffmpeg/export-executor";
 import type { ExportPreset, MediaAsset, Project } from "@/types/editor";
 
 export type JobRecord = {
@@ -34,6 +37,7 @@ const projects = new Map<string, Project>();
 const assets = new Map<string, MediaAsset[]>();
 const jobs = new Map<string, JobRecord>();
 const pendingPlans = new Map<string, PendingPlan>();
+const runtimeRoot = join(process.cwd(), ".promptcut-runtime");
 
 export const createDefaultProject = () => {
   if (projects.size > 0) return [...projects.values()][0];
@@ -66,10 +70,16 @@ export const getProject = (projectId = "project_demo") => projects.get(projectId
 
 export const listAssets = (projectId: string) => assets.get(projectId) ?? [];
 
-export const addAssetToProject = (projectId: string, file: { name: string; type: string; size?: number }): MediaAsset => {
+export const addAssetToProject = async (projectId: string, file: { name: string; type: string; size?: number; bytes?: ArrayBuffer | Uint8Array }): Promise<MediaAsset> => {
   const project = getProject(projectId);
   const id = `asset_${randomUUID().slice(0, 8)}`;
   const isAudio = file.type.startsWith("audio") || /\.(mp3|wav|m4a)$/i.test(file.name);
+  const mediaDir = join(runtimeRoot, "media", projectId, id);
+  await mkdir(mediaDir, { recursive: true });
+  const extension = isAudio ? "m4a" : "mp4";
+  const filePath = join(mediaDir, `original.${extension}`);
+  const bytes = file.bytes ? Buffer.from(file.bytes) : Buffer.from(`PromptCut local dev media placeholder: ${file.name}\n`);
+  await writeFile(filePath, bytes.length > 0 ? bytes : Buffer.from(`PromptCut empty upload placeholder: ${file.name}\n`));
   const asset: MediaAsset = {
     id,
     projectId,
@@ -80,6 +90,7 @@ export const addAssetToProject = (projectId: string, file: { name: string; type:
     width: isAudio ? undefined : 1920,
     height: isAudio ? undefined : 1080,
     fps: isAudio ? undefined : 24,
+    filePath,
     thumbnailUrl: isAudio ? undefined : "gradient",
   };
   assets.set(projectId, [...listAssets(projectId), asset]);
@@ -102,6 +113,10 @@ export const addAssetToProject = (projectId: string, file: { name: string; type:
   project.timeline.version += 1;
   project.updatedAt = now();
   return asset;
+};
+
+export const addAssetMetadataToProject = (projectId: string, asset: MediaAsset) => {
+  assets.set(projectId, [...listAssets(projectId), asset]);
 };
 
 const putJob = (job: JobRecord) => {
@@ -180,7 +195,13 @@ export const applyPendingPlan = (projectId: string, input: { request_id: string;
   if (!pending || pending.projectId !== projectId) throw new Error("找不到待应用方案");
   if (pending.state !== "ready") throw new Error("方案当前不可应用");
   if (project.timeline.version !== input.timeline_version) throw new Error("时间线版本已变化，请重新生成方案");
-  const selected = input.operation_ids?.length
+  if (input.operation_ids) {
+    if (input.operation_ids.length === 0) throw new Error("operation_ids 不能为空");
+    const ids = new Set(pending.plan.operations.map((operation) => operation.id));
+    const invalidIds = input.operation_ids.filter((id) => !ids.has(id));
+    if (invalidIds.length > 0) throw new Error(`operation_ids 不存在: ${invalidIds.join(", ")}`);
+  }
+  const selected = input.operation_ids
     ? pending.plan.operations.filter((operation) => input.operation_ids?.includes(operation.id))
     : pending.plan.operations;
   const result = applyEditOperations(project.timeline, selected, {
@@ -193,7 +214,7 @@ export const applyPendingPlan = (projectId: string, input: { request_id: string;
   return { timeline: project.timeline, timeline_version: project.timeline.version, applied_operation_ids: result.appliedOperationIds, warnings: result.warnings };
 };
 
-export const createExportJob = (input: { project_id: string; preset: ExportPreset; ignorePendingPlan?: boolean }) => {
+export const createExportJob = async (input: { project_id: string; preset: ExportPreset; ignorePendingPlan?: boolean }) => {
   const project = getProject(input.project_id);
   const hasPending = [...pendingPlans.values()].some((plan) => plan.projectId === project.id);
   if (hasPending && !input.ignorePendingPlan) {
@@ -202,21 +223,40 @@ export const createExportJob = (input: { project_id: string; preset: ExportPrese
     throw error;
   }
   const id = `export_${randomUUID().slice(0, 8)}`;
-  const outputPath = `public/exports/${project.id}/${id}.mp4`;
-  const command = buildFfmpegCommand(project.timeline, input.preset, outputPath);
+  const outputPath = join(runtimeRoot, "exports", project.id, `${id}.mp4`);
   project.exportPreset = input.preset;
   const job = putJob({
     id,
     projectId: project.id,
     type: "timeline_export",
-    status: "succeeded",
-    progress: 100,
+    status: "running",
+    progress: 40,
     input,
-    output: { export_path: outputPath, preset: input.preset, command, duration_ms: project.timeline.durationMs },
     createdAt: now(),
     updatedAt: now(),
   });
+  try {
+    const command = buildFfmpegCommand(project.timeline, input.preset, outputPath, listAssets(project.id));
+    const execution = await executeExport(command);
+    job.status = "succeeded";
+    job.progress = 100;
+    job.output = { export_path: outputPath, preset: input.preset, command, duration_ms: project.timeline.durationMs, file_size_bytes: execution.sizeBytes, mode: execution.mode };
+  } catch (error) {
+    job.status = "failed";
+    job.progress = 100;
+    job.error = { code: "EXPORT_FAILED", message: error instanceof Error ? error.message : "导出失败" };
+    job.output = { export_path: outputPath, preset: input.preset, duration_ms: project.timeline.durationMs };
+  }
+  job.updatedAt = now();
   return { job_id: job.id };
 };
 
 createDefaultProject();
+
+export const resetInMemoryStateForTests = () => {
+  projects.clear();
+  assets.clear();
+  jobs.clear();
+  pendingPlans.clear();
+  return createDefaultProject();
+};

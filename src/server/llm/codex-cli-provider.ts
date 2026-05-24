@@ -1,4 +1,7 @@
 import { spawn } from "node:child_process";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Readable } from "node:stream";
 import type { Writable } from "node:stream";
 import { EditPlanResponseSchema, type EditPlanResponse, type LlmEditRequest } from "@/server/llm/edit-plan-protocol";
@@ -7,13 +10,15 @@ export type CodexCliOptions = {
   bin?: string;
   model?: string;
   timeoutMs?: number;
+  cwd?: string;
+  env?: Record<string, string | undefined>;
   spawnImpl?: SpawnLike;
 };
 
 export type SpawnLike = (
   command: string,
   args: string[],
-  options: { stdio: ["pipe", "pipe", "pipe"]; env: Record<string, string | undefined> },
+  options: { stdio: ["pipe", "pipe", "pipe"]; env: Record<string, string | undefined>; cwd: string },
 ) => {
   stdin: Writable;
   stdout: Readable;
@@ -33,10 +38,10 @@ export class CodexCliError extends Error {
   }
 }
 
-const safeEnvKeys = ["PATH", "HOME", "LANG", "LC_ALL", "TERM"];
+const safeEnvKeys = ["PATH", "LANG", "LC_ALL", "TERM"];
 
 export const sanitizeEnv = (env: Record<string, string | undefined>): Record<string, string | undefined> =>
-  Object.fromEntries(Object.entries(env).filter(([key]) => safeEnvKeys.includes(key) || key.startsWith("CODEX_")));
+  Object.fromEntries(Object.entries(env).filter(([key, value]) => value !== undefined && safeEnvKeys.includes(key)));
 
 export const extractJson = (text: string): unknown => {
   const trimmed = text.trim();
@@ -83,9 +88,11 @@ export const generateCodexCliEditPlan = async (input: LlmEditRequest, options: C
   const model = options.model ?? process.env.CODEX_CLI_MODEL ?? "gpt-5.3-codex";
   const timeoutMs = getTimeoutMs(options.timeoutMs ?? process.env.CODEX_CLI_TIMEOUT_MS);
   const spawnFn = options.spawnImpl ?? (spawn as unknown as SpawnLike);
-  const child = spawnFn(bin, ["exec", "--model", model, "--json"], {
+  const cwd = options.cwd ?? (await mkdtemp(join(tmpdir(), "promptcut-codex-")));
+  const child = spawnFn(bin, ["exec", "--model", model, "--sandbox", "read-only", "--ask-for-approval", "never", "--config", "sandbox_network_access=false", "--json"], {
     stdio: ["pipe", "pipe", "pipe"],
-    env: sanitizeEnv(process.env),
+    env: sanitizeEnv(options.env ?? process.env),
+    cwd,
   });
 
   const stdoutPromise = readStream(child.stdout);
@@ -94,12 +101,17 @@ export const generateCodexCliEditPlan = async (input: LlmEditRequest, options: C
     child.on("error", reject);
     child.on("close", (code) => resolve(typeof code === "number" ? code : null));
   });
-  const timer = setTimeout(() => child.kill("SIGTERM"), timeoutMs);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    child.kill("SIGTERM");
+    setTimeout(() => child.kill("SIGKILL"), 100).unref();
+  }, timeoutMs);
   child.stdin.end(buildCodexPrompt(input));
 
   const code = await exitPromise.finally(() => clearTimeout(timer));
   const [stdout, stderr] = await Promise.all([stdoutPromise, stderrPromise]);
-  if (code === null) throw new CodexCliError("LLM_TIMEOUT", "Codex CLI 调用超时", stdout.slice(0, 8192), stderr);
+  if (timedOut || code === null) throw new CodexCliError("LLM_TIMEOUT", "Codex CLI 调用超时", stdout.slice(0, 8192), stderr);
   if (code !== 0) throw new CodexCliError("LLM_PROCESS_FAILED", `Codex CLI 退出码 ${code}`, stdout.slice(0, 8192), stderr);
 
   const json = extractJson(stdout);
