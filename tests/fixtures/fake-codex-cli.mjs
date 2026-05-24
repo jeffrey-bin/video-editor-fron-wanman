@@ -11,7 +11,8 @@ const emit = (plan) => {
 };
 
 process.stdin.on("end", () => {
-  const first = input.indexOf("{");
+  const marker = "根据下面 LlmEditRequest 生成 EditPlanResponse。";
+  const first = input.indexOf("{", input.indexOf(marker));
   const request = JSON.parse(input.slice(first));
   const prompt = request.user_intent.prompt;
   const base = {
