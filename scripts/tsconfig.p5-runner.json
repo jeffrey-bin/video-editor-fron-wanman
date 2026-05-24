@@ -1,0 +1,23 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "allowJs": false,
+    "declaration": false,
+    "incremental": false,
+    "isolatedModules": false,
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "noEmit": false,
+    "outDir": "../test-results/p5-runner-dist",
+    "rootDir": "..",
+    "sourceMap": false
+  },
+  "include": [
+    "../scripts/p5-real-media-runner.ts",
+    "../src/server/editor/**/*.ts",
+    "../src/server/ffmpeg/**/*.ts",
+    "../src/server/llm/**/*.ts",
+    "../src/server/media-quality/**/*.ts",
+    "../src/types/**/*.ts"
+  ]
+}
