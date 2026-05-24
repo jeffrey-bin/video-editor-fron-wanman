@@ -7,8 +7,8 @@
       "locale": "zh-CN",
       "exportPreset": "1080p_landscape",
       "storageRoot": "projects/project_demo",
-      "createdAt": "2026-05-24T16:24:01.251Z",
-      "updatedAt": "2026-05-24T16:25:01.251Z",
+      "createdAt": "2026-05-24T16:34:30.423Z",
+      "updatedAt": "2026-05-24T16:35:30.423Z",
       "timeline": {
         "version": 3,
         "durationMs": 24200,
@@ -70,10 +70,10 @@
       },
       "attempts": 2,
       "maxAttempts": 2,
-      "createdAt": "2026-05-24T16:24:31.251Z",
-      "updatedAt": "2026-05-24T16:25:26.251Z",
-      "startedAt": "2026-05-24T16:24:56.251Z",
-      "finishedAt": "2026-05-24T16:25:26.251Z"
+      "createdAt": "2026-05-24T16:35:00.423Z",
+      "updatedAt": "2026-05-24T16:35:55.423Z",
+      "startedAt": "2026-05-24T16:35:25.423Z",
+      "finishedAt": "2026-05-24T16:35:55.423Z"
     },
     "export_waiting": {
       "id": "export_waiting",
@@ -84,8 +84,8 @@
       "input": {},
       "attempts": 0,
       "maxAttempts": 2,
-      "createdAt": "2026-05-24T16:23:01.251Z",
-      "updatedAt": "2026-05-24T16:23:01.251Z"
+      "createdAt": "2026-05-24T16:33:30.423Z",
+      "updatedAt": "2026-05-24T16:33:30.423Z"
     },
     "llm_observability": {
       "id": "llm_observability",
@@ -98,10 +98,10 @@
       },
       "attempts": 1,
       "maxAttempts": 1,
-      "createdAt": "2026-05-24T16:24:41.251Z",
-      "updatedAt": "2026-05-24T16:25:26.251Z",
-      "startedAt": "2026-05-24T16:24:56.251Z",
-      "finishedAt": "2026-05-24T16:25:26.251Z"
+      "createdAt": "2026-05-24T16:35:10.423Z",
+      "updatedAt": "2026-05-24T16:35:55.423Z",
+      "startedAt": "2026-05-24T16:35:25.423Z",
+      "finishedAt": "2026-05-24T16:35:55.423Z"
     },
     "stalled_cleanup": {
       "id": "stalled_cleanup",
@@ -112,10 +112,10 @@
       "attempts": 1,
       "maxAttempts": 2,
       "leaseOwner": "stale-runner",
-      "leaseExpiresAt": "2026-05-24T16:24:01.251Z",
-      "createdAt": "2026-05-24T16:22:01.251Z",
-      "updatedAt": "2026-05-24T16:24:01.251Z",
-      "startedAt": "2026-05-24T16:23:01.251Z"
+      "leaseExpiresAt": "2026-05-24T16:34:30.423Z",
+      "createdAt": "2026-05-24T16:32:30.423Z",
+      "updatedAt": "2026-05-24T16:34:30.423Z",
+      "startedAt": "2026-05-24T16:33:30.423Z"
     }
   },
   "pendingPlans": {
@@ -136,8 +136,8 @@
       "state": "ready",
       "provider": "codex-cli",
       "prompt": "cut intro",
-      "createdAt": "2026-05-24T16:25:26.251Z",
-      "updatedAt": "2026-05-24T16:25:26.251Z"
+      "createdAt": "2026-05-24T16:35:55.423Z",
+      "updatedAt": "2026-05-24T16:35:55.423Z"
     }
   },
   "exports": {},
@@ -149,13 +149,13 @@
       "version": "0.1.0",
       "hostname": "worker-host",
       "pid": 12345,
-      "startedAt": "2026-05-24T16:11:01.251Z",
-      "lastHeartbeatAt": "2026-05-24T16:16:01.251Z",
+      "startedAt": "2026-05-24T16:21:30.423Z",
+      "lastHeartbeatAt": "2026-05-24T16:26:30.423Z",
       "currentJobId": "export_waiting",
       "currentQueue": "timeline_export",
       "processedJobsTotal": 5,
       "failedJobsTotal": 1,
-      "updatedAt": "2026-05-24T16:16:01.251Z"
+      "updatedAt": "2026-05-24T16:26:30.423Z"
     }
   },
   "schedulerHeartbeats": {
@@ -164,9 +164,9 @@
       "runnerId": "cleanup-worker-stale",
       "status": "healthy",
       "intervalSeconds": 60,
-      "lastHeartbeatAt": "2026-05-24T16:16:01.251Z",
-      "lastRunStartedAt": "2026-05-24T16:17:41.251Z",
-      "lastRunFinishedAt": "2026-05-24T16:18:01.251Z",
+      "lastHeartbeatAt": "2026-05-24T16:26:30.423Z",
+      "lastRunStartedAt": "2026-05-24T16:28:10.423Z",
+      "lastRunFinishedAt": "2026-05-24T16:28:30.423Z",
       "lastRunDurationMs": 120,
       "lastScannedRunningJobs": 1,
       "lastRepairedJobs": [
@@ -176,7 +176,7 @@
         "stalled_cleanup"
       ],
       "lastMarkedStalledJobs": [],
-      "updatedAt": "2026-05-24T16:16:01.251Z"
+      "updatedAt": "2026-05-24T16:26:30.423Z"
     }
   },
   "diagnostics": {
@@ -204,7 +204,7 @@
         "objectKey": "projects/project_demo/assets/asset_1/original/[REDACTED]",
         "timelineVersion": 3,
         "traceId": "trace-observability",
-        "createdAt": "2026-05-24T16:26:01.251Z"
+        "createdAt": "2026-05-24T16:36:30.423Z"
       }
     ]
   }
