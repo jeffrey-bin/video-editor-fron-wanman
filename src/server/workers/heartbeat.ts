@@ -89,12 +89,17 @@ export const clearActiveWorkerJob = (jobId?: string) => {
   if (!jobId || activeWorkerJob?.jobId === jobId) activeWorkerJob = undefined;
 };
 
+export const refreshActiveWorkerHeartbeat = async () => {
+  const active = activeWorkerJob;
+  if (!active) return recordWorkerHeartbeat();
+  await recordWorkerHeartbeat({ currentJobId: active.jobId, currentQueue: active.queue });
+  return refreshJobLease(active.jobId, active.queue);
+};
+
 export const startWorkerHeartbeatLoop = (intervalMs?: number) => {
   const config = getStorageConfig();
   const timer = setInterval(() => {
-    const active = activeWorkerJob;
-    const heartbeat = active ? recordWorkerHeartbeat({ currentJobId: active.jobId, currentQueue: active.queue }).then(() => refreshJobLease(active.jobId, active.queue)) : recordWorkerHeartbeat();
-    heartbeat.catch(() => undefined);
+    refreshActiveWorkerHeartbeat().catch(() => undefined);
   }, intervalMs ?? Math.max(5000, Math.floor((config.jobLeaseSeconds * 1000) / 3)));
   timer.unref?.();
   return { stop: () => clearInterval(timer) };

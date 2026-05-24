@@ -8,11 +8,18 @@ const addMock = vi.fn(async () => undefined);
 const closeMock = vi.fn(async () => undefined);
 const workerMock = vi.fn();
 const workerProcessors = new Map<string, (job: { data: { jobId: string } }) => Promise<void>>();
-const redisSetMock = vi.fn(async () => "OK");
-const redisGetMock = vi.fn(async () => undefined as string | undefined);
-const redisEvalMock = vi.fn(async () => 1);
-const redisConnectMock = vi.fn(async () => undefined);
-const redisDisconnectMock = vi.fn();
+const redisMocks = vi.hoisted(() => ({
+  set: vi.fn<() => Promise<string | undefined>>(async () => "OK"),
+  get: vi.fn<() => Promise<string | undefined>>(async () => undefined),
+  eval: vi.fn(async () => 1),
+  connect: vi.fn(async () => undefined),
+  disconnect: vi.fn(),
+}));
+const redisSetMock = redisMocks.set;
+const redisGetMock = redisMocks.get;
+const redisEvalMock = redisMocks.eval;
+const redisConnectMock = redisMocks.connect;
+const redisDisconnectMock = redisMocks.disconnect;
 
 vi.mock("@aws-sdk/client-s3", () => ({
   S3Client: vi.fn(() => ({ send: sendMock })),
@@ -36,12 +43,13 @@ vi.mock("bullmq", () => ({
 }));
 
 vi.mock("ioredis", () => ({
+  __esModule: true,
   default: vi.fn(() => ({
-    connect: redisConnectMock,
-    set: redisSetMock,
-    get: redisGetMock,
-    eval: redisEvalMock,
-    disconnect: redisDisconnectMock,
+    connect: redisMocks.connect,
+    set: redisMocks.set,
+    get: redisMocks.get,
+    eval: redisMocks.eval,
+    disconnect: redisMocks.disconnect,
   })),
 }));
 
@@ -75,6 +83,7 @@ describe("external storage, S3 and queue boundaries", () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
     vi.unstubAllEnvs();
     vi.resetModules();
     await rm(dir, { recursive: true, force: true });
@@ -210,6 +219,8 @@ describe("external storage, S3 and queue boundaries", () => {
     vi.stubEnv("PROMPTCUT_STATE_DRIVER", "external");
     vi.stubEnv("DATABASE_URL", "postgresql://user:pass@db.example/promptcut");
     vi.stubEnv("REDIS_URL", "redis://redis.example:6379");
+    const scheduler = await import("@/server/workers/scheduler-heartbeat");
+    scheduler.setStalledRepairLockClientFactoryForTests(() => ({ connect: redisConnectMock, set: redisSetMock, get: redisGetMock, eval: redisEvalMock, disconnect: redisDisconnectMock }));
     const { createPromptCutWorkers, repairAndRequeueStalledJobs } = await import("@/server/workers/promptcut-worker");
 
     await expect(repairAndRequeueStalledJobs()).resolves.toMatchObject({ repaired_job_ids: [exportJob.job_id], requeued_job_ids: [exportJob.job_id] });
@@ -238,6 +249,8 @@ describe("external storage, S3 and queue boundaries", () => {
     vi.stubEnv("PROMPTCUT_STATE_DRIVER", "external");
     vi.stubEnv("DATABASE_URL", "postgresql://user:pass@db.example/promptcut");
     vi.stubEnv("REDIS_URL", "redis://redis.example:6379");
+    const scheduler = await import("@/server/workers/scheduler-heartbeat");
+    scheduler.setStalledRepairLockClientFactoryForTests(() => ({ connect: redisConnectMock, set: redisSetMock, get: redisGetMock, eval: redisEvalMock, disconnect: redisDisconnectMock }));
     const { repairAndRequeueStalledJobs } = await import("@/server/workers/promptcut-worker");
     const [first, second] = await Promise.all([repairAndRequeueStalledJobs(), repairAndRequeueStalledJobs()]);
 
@@ -246,5 +259,40 @@ describe("external storage, S3 and queue boundaries", () => {
     expect(addMock).toHaveBeenCalledWith("timeline_export", { jobId: exportJob.job_id }, expect.objectContaining({ jobId: exportJob.job_id }));
     expect(redisSetMock).toHaveBeenCalledWith("promptcut:stalled-repair", expect.any(String), "PX", expect.any(Number), "NX");
     expect(redisEvalMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("records scheduler heartbeat failure when the stalled repair loop cannot acquire Redis", async () => {
+    vi.useFakeTimers();
+    await loadPersistent();
+    vi.stubEnv("PROMPTCUT_STATE_DRIVER", "external");
+    vi.stubEnv("DATABASE_URL", "postgresql://user:pass@db.example/promptcut");
+    vi.stubEnv("REDIS_URL", "redis://redis.example:6379");
+    redisSetMock.mockRejectedValueOnce(new Error("redis unavailable"));
+    const scheduler = await import("@/server/workers/scheduler-heartbeat");
+    scheduler.setStalledRepairLockClientFactoryForTests(() => ({ connect: redisConnectMock, set: redisSetMock, get: redisGetMock, eval: redisEvalMock, disconnect: redisDisconnectMock }));
+    const { startStalledJobRepairLoop } = await import("@/server/workers/promptcut-worker");
+    const loop = startStalledJobRepairLoop(1000);
+    await vi.advanceTimersByTimeAsync(1000);
+    await Promise.resolve();
+    await Promise.resolve();
+    loop.stop();
+    expect(redisSetMock).toHaveBeenCalledWith("promptcut:stalled-repair", expect.any(String), "PX", 60000, "NX");
+  });
+
+  it("clears active heartbeat context when a worker job fails", async () => {
+    await loadPersistent();
+    vi.stubEnv("PROMPTCUT_STATE_DRIVER", "external");
+    vi.stubEnv("DATABASE_URL", "postgresql://user:pass@db.example/promptcut");
+    vi.stubEnv("REDIS_URL", "redis://redis.example:6379");
+    const scheduler = await import("@/server/workers/scheduler-heartbeat");
+    scheduler.setStalledRepairLockClientFactoryForTests(() => ({ connect: redisConnectMock, set: redisSetMock, get: redisGetMock, eval: redisEvalMock, disconnect: redisDisconnectMock }));
+    const { createPromptCutWorkers } = await import("@/server/workers/promptcut-worker");
+    createPromptCutWorkers();
+    await expect(workerProcessors.get("cleanup")?.({ data: { jobId: "missing_job" } })).rejects.toThrow("JOB_NOT_FOUND");
+    const { getStateRepository } = await import("@/server/state/repository");
+    const database = await getStateRepository().load();
+    const heartbeat = Object.values(database.workerHeartbeats)[0];
+    expect(heartbeat).not.toHaveProperty("currentJobId");
+    expect(heartbeat).not.toHaveProperty("currentQueue");
   });
 });

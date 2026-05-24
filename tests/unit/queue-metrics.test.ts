@@ -4,6 +4,14 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getStateRepository, resetStateRepositoryForTests } from "@/server/state/repository";
 
+const getJobCountsMock = vi.fn(async () => ({ waiting: 2, delayed: 1, active: 1 }));
+const getWorkersMock = vi.fn(async () => [{ id: "worker-1" }, { id: "worker-2" }]);
+const closeMock = vi.fn(async () => undefined);
+
+vi.mock("bullmq", () => ({
+  Queue: vi.fn(() => ({ getJobCounts: getJobCountsMock, getWorkers: getWorkersMock, close: closeMock })),
+}));
+
 let dir = "";
 
 describe("queue metrics", () => {
@@ -11,6 +19,9 @@ describe("queue metrics", () => {
     dir = await mkdtemp(join(tmpdir(), "promptcut-queues-test-"));
     vi.stubEnv("PROMPTCUT_RUNTIME_ROOT", dir);
     vi.stubEnv("PROMPTCUT_STATE_DRIVER", "durable_fs");
+    getJobCountsMock.mockClear();
+    getWorkersMock.mockClear();
+    closeMock.mockClear();
     resetStateRepositoryForTests();
   });
 
@@ -100,6 +111,19 @@ describe("queue metrics", () => {
         failedJobsTotal: 0,
         updatedAt: new Date(now).toISOString(),
       };
+      database.schedulerHeartbeats.stalled_repair = {
+        name: "stalled_repair",
+        runnerId: "cleanup-worker-1",
+        status: "healthy",
+        intervalSeconds: 60,
+        lastHeartbeatAt: new Date(now).toISOString(),
+        lastRunFinishedAt: new Date(now - 5000).toISOString(),
+        lastScannedRunningJobs: 0,
+        lastRepairedJobs: [],
+        lastRequeuedJobs: [],
+        lastMarkedStalledJobs: [],
+        updatedAt: new Date(now).toISOString(),
+      };
     });
     const { collectQueueMetrics, renderPrometheusMetrics } = await import("@/server/observability/metrics");
     const metrics = await collectQueueMetrics();
@@ -112,5 +136,29 @@ describe("queue metrics", () => {
     expect(rendered).toContain('promptcut_job_queue_wait_seconds_bucket{type="timeline_export",le="30"} 1');
     expect(rendered).toContain('promptcut_llm_provider_latency_seconds_bucket{provider="codex-cli",le="30"} 1');
     expect(rendered).toContain('promptcut_ffmpeg_exit_total{exit_code="2"} 1');
+    expect(rendered).toContain('promptcut_stalled_repair_last_success_age_seconds{runner_id="cleanup-worker-1"}');
+  });
+
+  it("uses BullMQ counts for external queue metrics and closes queues", async () => {
+    await getStateRepository().mutate((database) => {
+      database.jobs.export_queued = {
+        id: "export_queued",
+        projectId: "project_demo",
+        type: "timeline_export",
+        status: "queued",
+        progress: 0,
+        input: {},
+        attempts: 0,
+        maxAttempts: 2,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+    });
+    vi.stubEnv("PROMPTCUT_STATE_DRIVER", "external");
+    vi.stubEnv("REDIS_URL", "redis://redis.example:6379");
+    const { collectQueueMetrics } = await import("@/server/observability/metrics");
+    const metrics = await collectQueueMetrics();
+    expect(metrics.queues.find((queue) => queue.name === "timeline_export")).toMatchObject({ waiting: 2, delayed: 1, active: 1, consumer_count: 2 });
+    expect(closeMock).toHaveBeenCalledTimes(4);
   });
 });

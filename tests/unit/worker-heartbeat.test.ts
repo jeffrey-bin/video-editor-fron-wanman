@@ -57,7 +57,7 @@ describe("worker heartbeat", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-24T00:00:00.000Z"));
     await seedRunningJob();
-    const { clearActiveWorkerJob, recordWorkerHeartbeat, setActiveWorkerJob, startWorkerHeartbeatLoop } = await import("@/server/workers/heartbeat");
+    const { clearActiveWorkerJob, recordWorkerHeartbeat, refreshActiveWorkerHeartbeat, setActiveWorkerJob, startWorkerHeartbeatLoop } = await import("@/server/workers/heartbeat");
     await recordWorkerHeartbeat({ currentJobId: "export_1", currentQueue: "timeline_export" });
     await recordWorkerHeartbeat();
     expect((await getStateRepository().load()).workerHeartbeats["media-worker-test"]).toMatchObject({ currentJobId: "export_1", currentQueue: "timeline_export" });
@@ -65,9 +65,8 @@ describe("worker heartbeat", () => {
     setActiveWorkerJob("export_1", "timeline_export");
     const loop = startWorkerHeartbeatLoop(1000);
     vi.setSystemTime(new Date("2026-05-24T00:00:10.000Z"));
+    await refreshActiveWorkerHeartbeat();
     await vi.advanceTimersByTimeAsync(1000);
-    await Promise.resolve();
-    await Promise.resolve();
     loop.stop();
     clearActiveWorkerJob("export_1");
 

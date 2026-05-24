@@ -14,12 +14,31 @@ export type StalledRepairLock = { acquired: true; owner: string } | { acquired: 
 
 const lockKey = "promptcut:stalled-repair";
 
+type StalledRepairLockClient = {
+  connect(): Promise<void>;
+  set(key: string, value: string, px: "PX", ttlMs: number, nx: "NX"): Promise<string | null | undefined>;
+  get(key: string): Promise<string | null | undefined>;
+  eval(script: string, keyCount: number, key: string, value: string): Promise<unknown>;
+  disconnect(): void;
+};
+
+let lockClientFactoryForTests: (() => StalledRepairLockClient) | undefined;
+
+export const setStalledRepairLockClientFactoryForTests = (factory?: () => StalledRepairLockClient) => {
+  lockClientFactoryForTests = factory;
+};
+
+const createLockClient = async (redisUrl: string): Promise<StalledRepairLockClient> => {
+  if (lockClientFactoryForTests) return lockClientFactoryForTests();
+  const Redis = (await import("ioredis")).default;
+  return new Redis(redisUrl, { maxRetriesPerRequest: 0, lazyConnect: true });
+};
+
 export const withStalledRepairLock = async <T>(ttlSeconds: number, run: (lock: StalledRepairLock) => Promise<T>): Promise<T> => {
   const config = getStorageConfig();
   const owner = `${config.runnerId}:${process.pid}:${Date.now()}`;
   if (config.stateDriver !== "external" || !config.redisUrl) return run({ acquired: true, owner });
-  const Redis = (await import("ioredis")).default;
-  const redis = new Redis(config.redisUrl, { maxRetriesPerRequest: 0, lazyConnect: true });
+  const redis = await createLockClient(config.redisUrl);
   try {
     await redis.connect();
     const acquired = await redis.set(lockKey, owner, "PX", Math.max(1000, ttlSeconds * 1000), "NX");
