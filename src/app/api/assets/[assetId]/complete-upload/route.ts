@@ -5,7 +5,7 @@ export async function POST(request: Request, context: { params: Promise<{ assetI
   try {
     const { assetId } = await context.params;
     const body = await request.json();
-    return NextResponse.json(await completeAssetUpload(assetId, { project_id: body.project_id, object_key: body.object_key, sha256: body.sha256 }));
+    return NextResponse.json(await completeAssetUpload(assetId, { project_id: body.project_id, object_key: body.object_key, sha256: body.sha256, size_bytes: body.size_bytes, mime_type: body.mime_type }));
   } catch (error) {
     return NextResponse.json({ error: { code: "COMPLETE_UPLOAD_FAILED", message: error instanceof Error ? error.message : "未知错误" } }, { status: 400 });
   }

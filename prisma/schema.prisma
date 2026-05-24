@@ -1,0 +1,110 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model StateMeta {
+  id        String   @id
+  revision  Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+model ProjectRecord {
+  id          String   @id
+  name        String
+  locale      String
+  exportPreset String
+  storageRoot String?
+  deletedAt   DateTime?
+  timeline    Json
+  createdAt   DateTime
+  updatedAt   DateTime
+}
+
+model AssetRecord {
+  id           String   @id
+  projectId    String
+  kind         String
+  originalName String
+  mimeType     String
+  sizeBytes    Int?
+  sha256       String?
+  originalKey  String?
+  proxyKey     String?
+  thumbnailKey String?
+  waveformKey  String?
+  probeStatus  String?
+  probeError   String?
+  durationMs   Int
+  width        Int?
+  height       Int?
+  fps          Float?
+  videoCodec   String?
+  audioCodec   String?
+  filePath     String?
+  thumbnailUrl String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([projectId])
+  @@unique([projectId, originalKey])
+}
+
+model JobRecord {
+  id             String   @id
+  projectId      String?
+  type           String
+  status         String
+  progress       Int
+  input          Json
+  output         Json?
+  error          Json?
+  attempts       Int
+  maxAttempts    Int
+  leaseOwner     String?
+  leaseExpiresAt DateTime?
+  createdAt      DateTime
+  updatedAt      DateTime
+  startedAt      DateTime?
+  finishedAt     DateTime?
+
+  @@index([status, leaseExpiresAt])
+  @@index([projectId])
+}
+
+model PendingPlanRecord {
+  requestId       String   @id
+  projectId        String
+  timelineVersion  Int
+  plan             Json
+  state            String
+  provider         String
+  prompt           String
+  createdAt        DateTime
+  updatedAt        DateTime
+  appliedAt        DateTime?
+  expiresAt        DateTime?
+
+  @@index([projectId, state])
+}
+
+model ExportFileRecord {
+  id        String   @id
+  projectId String
+  jobId     String
+  preset    String
+  objectKey String
+  sizeBytes Int
+  sha256    String?
+  durationMs Int
+  status    String
+  expiresAt DateTime
+  createdAt DateTime
+
+  @@index([projectId, status])
+  @@unique([objectKey])
+}

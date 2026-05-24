@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { applyEditOperations, collectProjectContext, dryRunEditPlan } from "@/server/editor/timeline-ops";
 import { AVAILABLE_OPERATIONS } from "@/server/editor/operation-schema";
@@ -10,126 +10,18 @@ import { buildFfmpegCommand } from "@/server/ffmpeg/command-builder";
 import { executeExport } from "@/server/ffmpeg/export-executor";
 import { assertProductionStorageIsConfigured, getStorageConfig } from "@/server/storage/config";
 import { buildObjectKey, createObjectStore, FilesystemObjectStore } from "@/server/storage/object-store";
+import { createDefaultProjectRecord, getStateRepository, type ExportFileRecord, type JobRecord, type PendingPlan, type PromptCutDatabase } from "@/server/state/repository";
+import { enqueuePromptCutJob } from "@/server/workers/queue";
 import type { ExportPreset, MediaAsset, Project } from "@/types/editor";
-
-export type JobRecord = {
-  id: string;
-  projectId?: string;
-  type: "asset_ingest" | "llm_edit_plan" | "timeline_export" | "cleanup";
-  status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "stalled";
-  progress: number;
-  input: unknown;
-  output?: unknown;
-  error?: { code: string; message: string };
-  attempts: number;
-  maxAttempts: number;
-  leaseOwner?: string;
-  leaseExpiresAt?: string;
-  createdAt: string;
-  updatedAt: string;
-  startedAt?: string;
-  finishedAt?: string;
-};
-
-type PendingPlan = {
-  requestId: string;
-  projectId: string;
-  timelineVersion: number;
-  plan: EditPlanResponse;
-  state: "ready" | "stale" | "invalid" | "applied" | "discarded" | "failed";
-  provider: string;
-  prompt: string;
-  createdAt: string;
-  updatedAt: string;
-  appliedAt?: string;
-  expiresAt?: string;
-};
-
-type ExportFileRecord = {
-  id: string;
-  projectId: string;
-  jobId: string;
-  preset: ExportPreset;
-  objectKey: string;
-  sizeBytes: number;
-  sha256?: string;
-  durationMs: number;
-  status: "succeeded" | "expired" | "deleted";
-  expiresAt: string;
-  createdAt: string;
-};
-
-type PromptCutDatabase = {
-  schemaVersion: 1;
-  projects: Record<string, Project>;
-  assets: Record<string, MediaAsset[]>;
-  jobs: Record<string, JobRecord>;
-  pendingPlans: Record<string, PendingPlan>;
-  exports: Record<string, ExportFileRecord>;
-};
 
 const now = () => new Date().toISOString();
 const config = getStorageConfig();
-const statePath = join(config.runtimeRoot, "state", "promptcut-state.json");
 const objectStore = createObjectStore();
-let writeQueue = Promise.resolve();
+const repository = getStateRepository();
 
 assertProductionStorageIsConfigured(config);
-
-const createDefaultProjectRecord = (): Project => ({
-  id: "project_demo",
-  name: "旅行 vlog 片段",
-  locale: "zh-CN",
-  exportPreset: "1080p_landscape",
-  storageRoot: "projects/project_demo",
-  createdAt: now(),
-  updatedAt: now(),
-  timeline: {
-    version: 1,
-    durationMs: 24200,
-    history: [],
-    tracks: [
-      { id: "video_main", kind: "video", name: "视频 1", clips: [] },
-      { id: "audio_voice", kind: "audio", name: "音频 1", clips: [] },
-      { id: "music", kind: "audio", name: "音乐", clips: [] },
-      { id: "subtitles", kind: "subtitle", name: "字幕", clips: [] },
-      { id: "ai_markers", kind: "ai", name: "AI 标记", clips: [] },
-    ],
-  },
-});
-
-const createEmptyDatabase = (): PromptCutDatabase => {
-  const project = createDefaultProjectRecord();
-  return { schemaVersion: 1, projects: { [project.id]: project }, assets: { [project.id]: [] }, jobs: {}, pendingPlans: {}, exports: {} };
-};
-
-const loadDatabase = async (): Promise<PromptCutDatabase> => {
-  try {
-    const parsed = JSON.parse(await readFile(statePath, "utf8")) as PromptCutDatabase;
-    return { ...createEmptyDatabase(), ...parsed };
-  } catch {
-    return createEmptyDatabase();
-  }
-};
-
-const saveDatabase = async (database: PromptCutDatabase) => {
-  await mkdir(dirname(statePath), { recursive: true });
-  const tmpPath = `${statePath}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(tmpPath, `${JSON.stringify(database, null, 2)}\n`);
-  await rename(tmpPath, statePath);
-};
-
-const mutateDatabase = async <T>(mutator: (database: PromptCutDatabase) => Promise<T> | T): Promise<T> => {
-  const run = async () => {
-    const database = await loadDatabase();
-    const result = await mutator(database);
-    await saveDatabase(database);
-    return result;
-  };
-  const next = writeQueue.then(run, run);
-  writeQueue = next.then(() => undefined, () => undefined);
-  return next;
-};
+const loadDatabase = () => repository.load();
+const mutateDatabase = <T>(mutator: (database: PromptCutDatabase) => Promise<T> | T): Promise<T> => repository.mutate(mutator);
 
 const getProjectFromDb = (database: PromptCutDatabase, projectId = "project_demo") => database.projects[projectId] ?? Object.values(database.projects)[0] ?? createDefaultProjectRecord();
 const listAssetsFromDb = (database: PromptCutDatabase, projectId: string) => database.assets[projectId] ?? [];
@@ -170,7 +62,7 @@ export const addAssetToProject = async (projectId: string, file: { name: string;
   const id = `asset_${randomUUID().slice(0, 8)}`;
   const isAudio = file.type.startsWith("audio") || /\.(mp3|wav|m4a)$/i.test(file.name);
   const objectKey = buildObjectKey.originalAsset(projectId, id, sha256, fileExtensionFor(file, isAudio));
-  const stored = await objectStore.putObject(objectKey, content);
+  const stored = await objectStore.putObject(objectKey, content, { contentType: file.type });
 
   return mutateDatabase((database) => {
     const project = getProjectFromDb(database, projectId);
@@ -261,12 +153,19 @@ export const createAssetUploadIntent = async (input: { project_id: string; file_
   return { asset_id: assetId, upload_url: upload.uploadUrl, object_key: objectKey, expires_in_seconds: upload.expiresInSeconds };
 };
 
-export const completeAssetUpload = async (assetId: string, input: { project_id: string; object_key: string; sha256?: string }) =>
-  mutateDatabase((database) => {
+export const completeAssetUpload = async (assetId: string, input: { project_id: string; object_key: string; sha256?: string; size_bytes?: number; mime_type?: string }) => {
+  const stored = await objectStore.statObject(input.object_key);
+  if (input.size_bytes !== undefined && stored.sizeBytes !== input.size_bytes) throw new Error("OBJECT_SIZE_MISMATCH");
+  if (input.sha256 !== undefined && stored.sha256 !== input.sha256) throw new Error("OBJECT_CHECKSUM_MISMATCH");
+  return mutateDatabase((database) => {
     const assets = listAssetsFromDb(database, input.project_id);
     const asset = assets.find((item) => item.id === assetId && item.originalKey === input.object_key);
     if (!asset) throw new Error("ASSET_NOT_FOUND");
-    asset.sha256 = input.sha256 ?? asset.sha256;
+    if (asset.sizeBytes !== undefined && asset.sizeBytes !== stored.sizeBytes) throw new Error("OBJECT_SIZE_MISMATCH");
+    if (asset.sha256 !== undefined && asset.sha256 !== stored.sha256) throw new Error("OBJECT_CHECKSUM_MISMATCH");
+    if (input.mime_type && asset.mimeType !== input.mime_type) throw new Error("OBJECT_CONTENT_TYPE_MISMATCH");
+    asset.sizeBytes = stored.sizeBytes;
+    asset.sha256 = stored.sha256;
     asset.probeStatus = "succeeded";
     asset.durationMs = asset.kind === "audio" ? 45000 : 24200;
     asset.width = asset.kind === "audio" ? undefined : 1920;
@@ -298,7 +197,7 @@ export const completeAssetUpload = async (assetId: string, input: { project_id: 
       status: "succeeded",
       progress: 100,
       input,
-      output: { asset_id: asset.id, object_key: input.object_key },
+      output: { asset_id: asset.id, object_key: input.object_key, size_bytes: stored.sizeBytes, sha256: stored.sha256 },
       attempts: 1,
       maxAttempts: 1,
       createdAt: now(),
@@ -308,6 +207,7 @@ export const completeAssetUpload = async (assetId: string, input: { project_id: 
     });
     return { asset, job_id: jobId };
   });
+};
 
 export const createPromptEditJob = async (input: {
   project_id: string;
@@ -338,22 +238,44 @@ export const createPromptEditJob = async (input: {
       id: jobId,
       projectId: project.id,
       type: "llm_edit_plan",
-      status: "running",
-      progress: 35,
-      input,
-      attempts: 1,
+      status: "queued",
+      progress: 0,
+      input: { ...input, request_id: requestId, request },
+      attempts: 0,
       maxAttempts: 1,
-      leaseOwner: config.runnerId,
-      leaseExpiresAt: new Date(Date.now() + config.jobLeaseSeconds * 1000).toISOString(),
       createdAt: now(),
       updatedAt: now(),
-      startedAt: now(),
     });
   });
+  await enqueuePromptCutJob("llm_edit_plan", jobId, () => processPromptEditJob(jobId));
+  return { request_id: requestId, job_id: jobId };
+};
 
+export const processPromptEditJob = async (jobId: string) => {
+  const database = await loadDatabase();
+  const job = database.jobs[jobId];
+  if (!job || job.type !== "llm_edit_plan") throw new Error("JOB_NOT_FOUND");
+  const input = job.input as {
+    project_id: string;
+    timeline_version: number;
+    prompt: string;
+    request_id: string;
+    request: unknown;
+  };
+  await mutateDatabase((db) => {
+    const current = db.jobs[jobId];
+    if (!current) return;
+    current.status = "running";
+    current.progress = 35;
+    current.attempts += 1;
+    current.leaseOwner = config.runnerId;
+    current.leaseExpiresAt = new Date(Date.now() + config.jobLeaseSeconds * 1000).toISOString();
+    current.startedAt = current.startedAt ?? now();
+    current.updatedAt = now();
+  });
   let plan: EditPlanResponse;
   try {
-    plan = EditPlanResponseSchema.parse(await generateConfiguredEditPlan(request));
+    plan = EditPlanResponseSchema.parse(await generateConfiguredEditPlan(LlmEditRequestSchema.parse(input.request)));
   } catch (error) {
     await mutateDatabase((db) => {
       const job = db.jobs[jobId];
@@ -361,23 +283,23 @@ export const createPromptEditJob = async (input: {
       job.status = "failed";
       job.progress = 100;
       job.error = toJobError(error);
-      job.output = { request_id: requestId, timeline_version: input.timeline_version, error: job.error };
+      job.output = { request_id: input.request_id, timeline_version: input.timeline_version, error: job.error };
       job.finishedAt = now();
       job.updatedAt = now();
     });
-    return { request_id: requestId, job_id: jobId };
+    return;
   }
 
   await mutateDatabase((db) => {
-    const latestProject = getProjectFromDb(db, project.id);
+    const latestProject = getProjectFromDb(db, input.project_id);
     let state: PendingPlan["state"] = latestProject.timeline.version === input.timeline_version ? "ready" : "stale";
     try {
       if (plan.status !== "failed") dryRunEditPlan(latestProject.timeline, plan.operations);
     } catch {
       state = "invalid";
     }
-    db.pendingPlans[requestId] = {
-      requestId,
+    db.pendingPlans[input.request_id] = {
+      requestId: input.request_id,
       projectId: latestProject.id,
       timelineVersion: input.timeline_version,
       plan,
@@ -391,11 +313,10 @@ export const createPromptEditJob = async (input: {
     const job = db.jobs[jobId];
     job.status = "succeeded";
     job.progress = 100;
-    job.output = { request_id: requestId, plan, timeline_version: input.timeline_version, plan_state: state };
+    job.output = { request_id: input.request_id, plan, timeline_version: input.timeline_version, plan_state: state };
     job.finishedAt = now();
     job.updatedAt = now();
   });
-  return { request_id: requestId, job_id: jobId };
 };
 
 export const applyPendingPlan = async (projectId: string, input: { request_id: string; timeline_version: number; operation_ids?: string[] }) =>
@@ -441,8 +362,6 @@ export const createExportJob = async (input: { project_id: string; preset: Expor
   }
   const exportId = `export_${randomUUID().slice(0, 8)}`;
   const objectKey = buildObjectKey.exportFile(project.id, exportId, input.preset);
-  const outputPath = objectStore instanceof FilesystemObjectStore ? objectStore.resolveLocalPath(objectKey) : join(config.runtimeRoot, "temp", exportId, `${input.preset}.mp4`);
-  await mkdir(dirname(outputPath), { recursive: true });
   await mutateDatabase((db) => {
     const dbProject = getProjectFromDb(db, project.id);
     dbProject.exportPreset = input.preset;
@@ -451,45 +370,67 @@ export const createExportJob = async (input: { project_id: string; preset: Expor
       id: exportId,
       projectId: project.id,
       type: "timeline_export",
-      status: "running",
-      progress: 40,
-      input: { ...input, timeline_version: project.timeline.version, timeline_snapshot: project.timeline },
-      attempts: 1,
+      status: "queued",
+      progress: 0,
+      input: { ...input, object_key: objectKey, timeline_version: project.timeline.version, timeline_snapshot: project.timeline },
+      attempts: 0,
       maxAttempts: 2,
-      leaseOwner: config.runnerId,
-      leaseExpiresAt: new Date(Date.now() + config.jobLeaseSeconds * 1000).toISOString(),
       createdAt: now(),
       updatedAt: now(),
-      startedAt: now(),
     });
+  });
+  await enqueuePromptCutJob("timeline_export", exportId, () => processExportJob(exportId));
+  return { job_id: exportId, export_id: exportId };
+};
+
+export const processExportJob = async (jobId: string) => {
+  const database = await loadDatabase();
+  const jobRecord = database.jobs[jobId];
+  if (!jobRecord || jobRecord.type !== "timeline_export") throw new Error("JOB_NOT_FOUND");
+  const input = jobRecord.input as { project_id: string; preset: ExportPreset; object_key: string; timeline_version: number; timeline_snapshot: Project["timeline"] };
+  const project = structuredClone(getProjectFromDb(database, input.project_id));
+  project.timeline = input.timeline_snapshot;
+  const objectKey = input.object_key;
+  const outputPath = objectStore instanceof FilesystemObjectStore ? objectStore.resolveLocalPath(objectKey) : join(config.runtimeRoot, "temp", jobId, `${input.preset}.mp4`);
+  await mkdir(dirname(outputPath), { recursive: true });
+  await mutateDatabase((db) => {
+    const job = db.jobs[jobId];
+    if (!job) return;
+    job.status = "running";
+    job.progress = 40;
+    job.attempts += 1;
+    job.leaseOwner = config.runnerId;
+    job.leaseExpiresAt = new Date(Date.now() + config.jobLeaseSeconds * 1000).toISOString();
+    job.startedAt = job.startedAt ?? now();
+    job.updatedAt = now();
   });
   try {
     const command = buildFfmpegCommand(project.timeline, input.preset, outputPath, listAssetsFromDb(database, project.id));
     const execution = await executeExport(command);
     const exported = await readFile(outputPath);
     const sha256 = createHash("sha256").update(exported).digest("hex");
+    if (!(objectStore instanceof FilesystemObjectStore)) await objectStore.putObject(objectKey, exported, { contentType: "video/mp4" });
     const expiresAt = new Date(Date.now() + config.exportRetentionDays * 24 * 60 * 60 * 1000).toISOString();
     await mutateDatabase((db) => {
-      db.exports[exportId] = { id: exportId, projectId: project.id, jobId: exportId, preset: input.preset, objectKey, sizeBytes: execution.sizeBytes, sha256, durationMs: project.timeline.durationMs, status: "succeeded", expiresAt, createdAt: now() };
-      const job = db.jobs[exportId];
+      db.exports[jobId] = { id: jobId, projectId: project.id, jobId, preset: input.preset, objectKey, sizeBytes: execution.sizeBytes, sha256, durationMs: project.timeline.durationMs, status: "succeeded", expiresAt, createdAt: now() };
+      const job = db.jobs[jobId];
       job.status = "succeeded";
       job.progress = 100;
-      job.output = { export_id: exportId, export_path: outputPath, object_key: objectKey, preset: input.preset, command, duration_ms: project.timeline.durationMs, file_size_bytes: execution.sizeBytes, mode: execution.mode, expires_at: expiresAt };
+      job.output = { export_id: jobId, export_path: outputPath, object_key: objectKey, preset: input.preset, command, duration_ms: project.timeline.durationMs, file_size_bytes: execution.sizeBytes, mode: execution.mode, expires_at: expiresAt };
       job.finishedAt = now();
       job.updatedAt = now();
     });
   } catch (error) {
     await mutateDatabase((db) => {
-      const job = db.jobs[exportId];
+      const job = db.jobs[jobId];
       job.status = "failed";
       job.progress = 100;
       job.error = { code: "EXPORT_FAILED", message: error instanceof Error ? error.message : "导出失败" };
-      job.output = { export_id: exportId, export_path: outputPath, object_key: objectKey, preset: input.preset, duration_ms: project.timeline.durationMs };
+      job.output = { export_id: jobId, export_path: outputPath, object_key: objectKey, preset: input.preset, duration_ms: project.timeline.durationMs };
       job.finishedAt = now();
       job.updatedAt = now();
     });
   }
-  return { job_id: exportId, export_id: exportId };
 };
 
 export const getExportDownloadUrl = async (exportId: string) => {
@@ -529,8 +470,38 @@ export const cleanupExpiredStorage = async () => {
   return { deleted_object_keys: deletedKeys };
 };
 
+export const repairStalledJobs = async () =>
+  mutateDatabase((database) => {
+    const repaired: string[] = [];
+    const cutoff = Date.now();
+    for (const job of Object.values(database.jobs)) {
+      if (job.status === "running" && job.leaseExpiresAt && new Date(job.leaseExpiresAt).getTime() < cutoff) {
+        if (job.attempts < job.maxAttempts) {
+          job.status = "queued";
+          job.progress = 0;
+          job.leaseOwner = undefined;
+          job.leaseExpiresAt = undefined;
+        } else {
+          job.status = "stalled";
+          job.error = { code: "JOB_LEASE_EXPIRED", message: "Job lease expired and max attempts were exhausted" };
+          job.finishedAt = now();
+        }
+        job.updatedAt = now();
+        repaired.push(job.id);
+      }
+    }
+    return { repaired_job_ids: repaired };
+  });
+
+export const processQueuedJob = async (jobId: string) => {
+  const job = await getJob(jobId);
+  if (!job) throw new Error("JOB_NOT_FOUND");
+  if (job.type === "llm_edit_plan") return processPromptEditJob(jobId);
+  if (job.type === "timeline_export") return processExportJob(jobId);
+  throw new Error(`Unsupported queued job type: ${job.type}`);
+};
+
 export const resetPersistentStateForTests = async () => {
-  await rm(config.runtimeRoot, { recursive: true, force: true });
-  await saveDatabase(createEmptyDatabase());
+  await repository.reset();
   return getProject();
 };

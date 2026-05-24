@@ -1,4 +1,5 @@
 import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -99,9 +100,14 @@ describe("P1 persistent storage", () => {
   it("supports upload intent, complete-upload, idempotent object delete and production guards", async () => {
     const state = await loadPersistent();
     await state.resetPersistentStateForTests();
-    const intent = await state.createAssetUploadIntent({ project_id: "project_demo", file_name: "clip.wav", mime_type: "audio/wav", size_bytes: 10, sha256: "abc" });
-    expect(intent.object_key).toBe(`projects/project_demo/assets/${intent.asset_id}/original/abc.wav`);
-    const completed = await state.completeAssetUpload(intent.asset_id, { project_id: "project_demo", object_key: intent.object_key, sha256: "abc" });
+    const uploadBytes = Buffer.from("0123456789");
+    const uploadSha = createHash("sha256").update(uploadBytes).digest("hex");
+    const intent = await state.createAssetUploadIntent({ project_id: "project_demo", file_name: "clip.wav", mime_type: "audio/wav", size_bytes: uploadBytes.byteLength, sha256: uploadSha });
+    expect(intent.object_key).toBe(`projects/project_demo/assets/${intent.asset_id}/original/${uploadSha}.wav`);
+    const uploadStore = new FilesystemObjectStore(getStorageConfig());
+    await uploadStore.putObject(intent.object_key, uploadBytes, { contentType: "audio/wav" });
+    await expect(state.completeAssetUpload(intent.asset_id, { project_id: "project_demo", object_key: intent.object_key, sha256: "bad", size_bytes: uploadBytes.byteLength })).rejects.toThrow("OBJECT_CHECKSUM_MISMATCH");
+    const completed = await state.completeAssetUpload(intent.asset_id, { project_id: "project_demo", object_key: intent.object_key, sha256: uploadSha, size_bytes: uploadBytes.byteLength, mime_type: "audio/wav" });
     expect(completed.job_id).toBe(`asset_ingest_${intent.asset_id}`);
     expect(completed.asset.probeStatus).toBe("succeeded");
     await expect(state.completeAssetUpload("missing", { project_id: "project_demo", object_key: intent.object_key })).rejects.toThrow("ASSET_NOT_FOUND");
@@ -120,6 +126,7 @@ describe("P1 persistent storage", () => {
     vi.stubEnv("DATABASE_URL", "");
     expect(() => assertProductionStorageIsConfigured({ ...getStorageConfig(), stateDriver: "external", objectStorageProvider: "filesystem" })).toThrow("DATABASE_URL");
     vi.stubEnv("DATABASE_URL", "postgresql://example");
+    vi.stubEnv("REDIS_URL", "redis://example");
     expect(() => assertProductionStorageIsConfigured({ ...getStorageConfig(), stateDriver: "external", objectStorageProvider: "filesystem" })).not.toThrow();
     expect(() => assertProductionStorageIsConfigured({ ...getStorageConfig(), stateDriver: "external", objectStorageProvider: "s3_compatible" })).toThrow("Missing object storage env");
     vi.stubEnv("PROMPTCUT_STATE_DRIVER", "in_memory_local_dev");
