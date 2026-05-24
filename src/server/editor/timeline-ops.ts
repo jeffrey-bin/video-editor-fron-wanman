@@ -23,6 +23,8 @@ const subtitleTrack = (timeline: Timeline, requestedId?: string): Track => {
   const existing = requestedId
     ? timeline.tracks.find((track) => track.id === requestedId)
     : timeline.tracks.find((track) => track.kind === "subtitle");
+  if (existing && existing.kind !== "subtitle") throw new Error("目标轨道不是字幕轨");
+  if (existing?.locked) throw new Error("目标轨道已锁定");
   if (existing) return existing;
   const track: Track = { id: requestedId ?? "subtitles", kind: "subtitle", name: "字幕", clips: [] };
   timeline.tracks.push(track);
@@ -32,6 +34,41 @@ const subtitleTrack = (timeline: Timeline, requestedId?: string): Track => {
 const ensureInProjectRange = (timeline: Timeline, startMs: number, endMs: number) => {
   if (startMs >= endMs) throw new Error("时间范围无效");
   if (endMs > timeline.durationMs) throw new Error("操作超出项目时长");
+};
+
+const ensureTrackEditable = (track: Track) => {
+  if (track.locked) throw new Error(`轨道 ${track.id} 已锁定`);
+};
+
+const ensureClipMatchesTrack = (clip: Clip, track: Track) => {
+  if (clip.kind !== track.kind) throw new Error(`片段 ${clip.id} 与轨道 ${track.id} 类型不匹配`);
+};
+
+const ensureClipKind = (clip: Clip, expected: Clip["kind"], message: string) => {
+  if (clip.kind !== expected) throw new Error(message);
+};
+
+const ensureNoOverlaps = (timeline: Timeline) => {
+  for (const track of timeline.tracks) {
+    if (track.kind === "ai") continue;
+    const sorted = [...track.clips].sort((a, b) => a.startMs - b.startMs);
+    for (let index = 1; index < sorted.length; index += 1) {
+      if (sorted[index - 1].endMs > sorted[index].startMs) {
+        throw new Error(`轨道 ${track.id} 存在重叠片段`);
+      }
+    }
+  }
+};
+
+const validateTimeline = (timeline: Timeline) => {
+  for (const track of timeline.tracks) {
+    for (const clip of track.clips) {
+      ensureClipMatchesTrack(clip, track);
+      ensureInProjectRange(timeline, clip.startMs, clip.endMs);
+      if (clip.sourceStartMs >= clip.sourceEndMs) throw new Error(`片段 ${clip.id} 源时间范围无效`);
+    }
+  }
+  ensureNoOverlaps(timeline);
 };
 
 export const dryRunEditPlan = (timeline: Timeline, operations: EditOperation[]): TimelineApplyResult => {
@@ -56,9 +93,17 @@ export const applyEditOperations = (
       case "trim_clip": {
         const found = findClip(timeline, operation.target.clip_id);
         if (!found) throw new Error(`找不到片段 ${operation.target.clip_id}`);
+        ensureTrackEditable(found.track);
         const nextStart = operation.params.timeline_start_ms ?? found.clip.startMs;
         const nextEnd = operation.params.timeline_end_ms ?? found.clip.endMs;
         ensureInProjectRange(timeline, nextStart, nextEnd);
+        if (
+          operation.params.source_start_ms !== undefined &&
+          operation.params.source_end_ms !== undefined &&
+          operation.params.source_start_ms >= operation.params.source_end_ms
+        ) {
+          throw new Error("源时间范围无效");
+        }
         found.clip.startMs = nextStart;
         found.clip.endMs = nextEnd;
         found.clip.sourceStartMs = operation.params.source_start_ms ?? found.clip.sourceStartMs;
@@ -73,6 +118,7 @@ export const applyEditOperations = (
           : timeline.tracks.filter((track) => track.kind !== "ai");
         if (tracks.length === 0) throw new Error("找不到要删除的轨道");
         for (const track of tracks) {
+          ensureTrackEditable(track);
           track.clips = track.clips.flatMap((clip) => {
             if (clip.endMs <= operation.target.start_ms || clip.startMs >= operation.target.end_ms) {
               if (operation.params.ripple && clip.startMs >= operation.target.end_ms) {
@@ -114,11 +160,15 @@ export const applyEditOperations = (
       case "move_clip": {
         const found = findClip(timeline, operation.target.clip_id);
         if (!found) throw new Error(`找不到片段 ${operation.target.clip_id}`);
+        ensureTrackEditable(found.track);
         const duration = found.clip.endMs - found.clip.startMs;
         const targetTrack = operation.params.track_id
           ? timeline.tracks.find((track) => track.id === operation.params.track_id)
           : found.track;
         if (!targetTrack) throw new Error("找不到目标轨道");
+        ensureTrackEditable(targetTrack);
+        if (targetTrack.kind !== found.clip.kind) throw new Error("目标轨道类型与片段类型不匹配");
+        ensureInProjectRange(timeline, operation.params.start_ms, operation.params.start_ms + duration);
         found.track.clips.splice(found.index, 1);
         targetTrack.clips.push({ ...found.clip, trackId: targetTrack.id, startMs: operation.params.start_ms, endMs: operation.params.start_ms + duration });
         break;
@@ -126,6 +176,7 @@ export const applyEditOperations = (
       case "split_clip": {
         const found = findClip(timeline, operation.target.clip_id);
         if (!found) throw new Error(`找不到片段 ${operation.target.clip_id}`);
+        ensureTrackEditable(found.track);
         if (operation.target.at_ms <= found.clip.startMs || operation.target.at_ms >= found.clip.endMs) {
           throw new Error("切点必须在片段内部");
         }
@@ -158,6 +209,7 @@ export const applyEditOperations = (
       case "update_subtitle": {
         const found = findClip(timeline, operation.target.subtitle_id);
         if (!found || found.clip.kind !== "subtitle") throw new Error("找不到字幕");
+        ensureTrackEditable(found.track);
         found.clip.text = operation.params.text ?? found.clip.text;
         found.clip.startMs = operation.params.start_ms ?? found.clip.startMs;
         found.clip.endMs = operation.params.end_ms ?? found.clip.endMs;
@@ -167,12 +219,16 @@ export const applyEditOperations = (
       case "adjust_video": {
         const found = findClip(timeline, operation.target.clip_id);
         if (!found) throw new Error("找不到视频片段");
+        ensureTrackEditable(found.track);
+        ensureClipKind(found.clip, "video", "找不到视频片段");
         found.clip.filters = { ...found.clip.filters, ...operation.params };
         break;
       }
       case "adjust_audio": {
         const found = findClip(timeline, operation.target.clip_id);
         if (!found) throw new Error("找不到音频片段");
+        ensureTrackEditable(found.track);
+        ensureClipKind(found.clip, "audio", "找不到音频片段");
         found.clip.volumeDb = operation.params.volume_db ?? found.clip.volumeDb;
         found.clip.muted = operation.params.muted ?? found.clip.muted;
         found.clip.filters = { ...found.clip.filters, normalize: operation.params.normalize ?? found.clip.filters?.normalize };
@@ -184,6 +240,7 @@ export const applyEditOperations = (
       default:
         throw new Error("不支持的操作");
     }
+    validateTimeline(timeline);
     appliedOperationIds.push(operation.id);
   }
 
