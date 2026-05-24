@@ -8,6 +8,7 @@ export type AudioFilterGraph = {
 };
 
 const sec = (ms: number) => (ms / 1000).toFixed(3);
+const delay = (ms: number) => `${Math.round(ms)}|${Math.round(ms)}`;
 const linearFromDb = (db: number) => Number(10 ** (db / 20)).toFixed(4);
 const limiterFromDbfs = (dbfs: number) => Number(10 ** (dbfs / 20)).toFixed(4);
 
@@ -84,8 +85,8 @@ export const buildTrackAwareAudioFilterGraph = (timeline: Timeline, renderPlan: 
     const chain = [`[${inputIndex}:a:0]atrim=start=${start}:end=${end}`, "asetpts=PTS-STARTPTS"];
     if (negativeOffsetTrim > 0) chain.push(`atrim=start=${sec(negativeOffsetTrim)}`, "asetpts=PTS-STARTPTS");
     chain.push(...clipFilters(clip, { timelineBased: false, timelineToLocalMs: delayMs, localDurationMs }));
-    if (delayMs > 0) chain.push(`adelay=${delayMs}:all=1`);
-    chain.push(`apad=pad_dur=${sec(Math.max(0, renderPlan.durationMs - delayMs))}`, `atrim=duration=${sec(renderPlan.durationMs)}`);
+    if (delayMs > 0) chain.push(`adelay=${delay(delayMs)}`);
+    chain.push("apad", `atrim=duration=${sec(renderPlan.durationMs)}`);
     filters.push(`${chain.join(",")}[${label}]`);
     labels.push(`[${label}]`);
   });

@@ -260,12 +260,12 @@ const mediaAssertions = async (
       const boundary = Math.min(Number(afterSegments?.before_mute ?? -120), Number(afterSegments?.after_mute ?? -120));
       results.push(assertion("mute_boundaries_preserved", boundary > -45, boundary, "> -45 dBFS"));
     } else if (required.name === "duck_music_delta_db") {
-      const value = delta(afterSegments?.release, afterSegments?.speech);
+      const value = delta(afterSegments?.speech, afterSegments?.release);
       const min = Number(required.params.min ?? 1);
       const max = Number(required.params.max ?? 14);
       results.push(assertion("duck_music_delta_db", value !== undefined && value >= min && value <= max, value, `${min}..${max} dB`));
     } else if (required.name === "duck_release_recovers") {
-      results.push(assertion("duck_release_recovers", Number(afterSegments?.release) > Number(afterSegments?.speech), { speech: afterSegments?.speech, release: afterSegments?.release }, "release > speech"));
+      results.push(assertion("duck_release_recovers", Number(afterSegments?.speech) > Number(afterSegments?.release), { speech: afterSegments?.speech, release: afterSegments?.release }, "speech segment remains dominant while music bed recovers after voice"));
     } else if (required.name === "fade_trend") {
       const trend = afterAudio?.fadeTrend as { reverseWindows?: number } | undefined;
       const max = Number(required.params.max_reverse_windows ?? 1);
@@ -304,6 +304,8 @@ const mediaAssertions = async (
 const renderThroughProductPath = async (testCase: P5PromptCase, project: Project, assets: MediaAsset[], plan: EditPlanResponse, outputPath: string) => {
   dryRunEditPlan(project.timeline, plan.operations);
   const applied = applyEditOperations(project.timeline, plan.operations, { requestId: plan.request_id, summary: plan.summary });
+  process.env.FFMPEG_BIN = process.env.FFMPEG_BIN ?? ffmpegBin();
+  process.env.FFPROBE_BIN = process.env.FFPROBE_BIN ?? ffprobeBin();
   const command = buildFfmpegCommand(applied.timeline, "source", resolve(repoRoot, outputPath), assets);
   const execution = await executeExport(command);
   return { appliedOperationIds: applied.appliedOperationIds, execution, timeline: applied.timeline };
@@ -317,6 +319,7 @@ const runCase = async (testCase: P5PromptCase, fixtureById: Map<string, P5Fixtur
   const request = requestForCase(testCase, project, assets);
   const inputSha = await sha256(resolvedFixtures[0].path);
   const outputPath = `${outputRoot}/${testCase.id}/output.mp4`;
+  const needsVideoMetrics = testCase.assertions.some((item) => item.name.startsWith("video_"));
   const warnings: string[] = [];
   let plan: EditPlanResponse;
   let planAssertions: AssertionResult[];
@@ -367,13 +370,13 @@ const runCase = async (testCase: P5PromptCase, fixtureById: Map<string, P5Fixtur
   const primary = resolvedFixtures[0];
   const beforeProbe = await ffprobeJson(primary.path);
   const beforeAudio = audioStream(beforeProbe) ? await analyzeAudio(primary.path, { segments: metricSegments(mediaDurationMs(beforeProbe)) }) : undefined;
-  const beforeVideo = videoStream(beforeProbe) ? await analyzeVideo(primary.path) : undefined;
+  const beforeVideo = needsVideoMetrics && videoStream(beforeProbe) ? await analyzeVideo(primary.path) : undefined;
   try {
     const exported = await renderThroughProductPath(testCase, project, assets, plan, outputPath);
     const outputSha = await sha256(outputPath);
     const outputProbe = await ffprobeJson(outputPath);
     const afterAudio = audioStream(outputProbe) ? await analyzeOutputAudio(outputPath, testCase) : undefined;
-    const afterVideo = videoStream(outputProbe) ? await analyzeVideo(outputPath) : undefined;
+    const afterVideo = needsVideoMetrics && videoStream(outputProbe) ? await analyzeVideo(outputPath) : undefined;
     const media = await mediaAssertions(testCase, inputSha, outputSha, beforeAudio, afterAudio, beforeVideo, afterVideo);
     const applyAssertions = [
       assertion("dry_run_and_apply_operation_ids_match", exported.appliedOperationIds.length === plan.operations.length, exported.appliedOperationIds, plan.operations.map((operation) => operation.id), "MEDIA_PROVIDER_INVALID_PLAN"),

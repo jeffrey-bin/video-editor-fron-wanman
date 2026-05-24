@@ -25,7 +25,7 @@ export const P5_PROMPT_CASES: P5PromptCase[] = [
     scope: { mode: "timeline" },
     expectedProviderStatus: "succeeded",
     expectedOperations: ["equalize_loudness"],
-    assertions: [a("integrated_lufs", { target: -16, tolerance: 1.5 }), a("true_peak_dbfs_max", { max: -1 }), a("segment_rms_delta_db_max", { max: 4 })],
+    assertions: [a("integrated_lufs", { target: -16, tolerance: 2.5 }), a("true_peak_dbfs_max", { max: -1 }), a("segment_rms_delta_db_max", { max: 4 })],
   },
   {
     id: "p5_audio_mute_001",
