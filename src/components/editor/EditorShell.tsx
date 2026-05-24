@@ -8,6 +8,13 @@ import type { MediaAsset, Project, Timeline } from "@/types/editor";
 type JobOutput = { request_id: string; plan: EditPlanResponse; timeline_version: number; plan_state: "ready" | "stale" | "invalid" };
 type ProjectPayload = { project: Project; assets: MediaAsset[] };
 
+const mergeAssets = (left: MediaAsset[], right: MediaAsset[]) => {
+  const merged = new Map<string, MediaAsset>();
+  for (const asset of left) merged.set(asset.id, asset);
+  for (const asset of right) merged.set(asset.id, asset);
+  return [...merged.values()];
+};
+
 const ms = (value: number) => {
   const total = Math.floor(value / 1000);
   const minutes = String(Math.floor(total / 60)).padStart(2, "0");
@@ -64,14 +71,16 @@ export function EditorShell() {
         setError(data.error?.message ?? "素材导入失败");
         return;
       }
+      const uploadedAsset = data.asset as MediaAsset;
+      setAssets((current) => mergeAssets(current, [uploadedAsset]));
       const latestResponse = await fetch("/api/projects");
       if (!latestResponse.ok) {
-        setAssets((current) => [...current, data.asset]);
+        setAssets((current) => mergeAssets(current, [uploadedAsset]));
         return;
       }
       const latest = (await latestResponse.json()) as ProjectPayload;
       setProject(latest.project);
-      setAssets(latest.assets);
+      setAssets((current) => mergeAssets(current, latest.assets));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "素材导入失败");
     }

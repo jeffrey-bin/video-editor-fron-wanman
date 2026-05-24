@@ -5,12 +5,19 @@ import { join } from "node:path";
 test("P0 flow: import asset, prompt plan, apply, export", async ({ page }) => {
   await page.goto("/");
   const fixture = await readFile(join(process.cwd(), "tests/fixtures/minimal-real.mp4"));
+  const uploadResponsePromise = page.waitForResponse((response) => response.url().endsWith("/api/assets") && response.request().method() === "POST");
   await page.setInputFiles("[data-testid=file-input]", {
     name: "travel-vlog.mp4",
     mimeType: "video/mp4",
     buffer: fixture,
   });
+  const uploadResponse = await uploadResponsePromise;
+  expect(uploadResponse.ok()).toBe(true);
+  const uploadPayload = (await uploadResponse.json()) as { asset: { originalName: string; id: string } };
+  expect(uploadPayload.asset.originalName).toBe("travel-vlog.mp4");
+  expect(uploadPayload.asset.id).toMatch(/^asset_/);
   await expect(page.getByText("travel-vlog.mp4")).toBeVisible();
+  await expect(page.getByTestId("run-prompt")).toBeEnabled();
   await page.getByTestId("run-prompt").click();
   await expect(page.getByTestId("edit-plan")).toContainText("方案审阅");
   await page.getByTestId("apply-plan").click();
