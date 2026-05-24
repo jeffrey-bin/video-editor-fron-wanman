@@ -1,4 +1,4 @@
-const tokenPattern = /([A-Za-z0-9_-]{4})[A-Za-z0-9_-]{16,}/g;
+const tokenPattern = /[A-Za-z0-9_-]{20,}/g;
 const authorizationPattern = /(Authorization\s*:\s*Bearer\s+)([^\s,;"'}]+)/gi;
 const cookiePattern = /((?:Cookie|Set-Cookie)\s*:\s*)([^,\n\r]+)/gi;
 const apiKeyPattern = /((?:OPENAI_API_KEY|ANTHROPIC_API_KEY|OBJECT_STORAGE_SECRET_ACCESS_KEY|OBJECT_STORAGE_ACCESS_KEY_ID|CODEX_[A-Z_]*TOKEN)\s*[=:]\s*)([^\s,;"'}]+)/gi;
@@ -24,7 +24,7 @@ export const redactString = (input: string) => {
     }
   });
 
-  return output.replace(tokenPattern, (_match, prefix: string) => `${prefix}...[REDACTED]`);
+  return output.replace(tokenPattern, (match) => (/\d/.test(match) ? `${match.slice(0, 4)}...[REDACTED]` : match));
 };
 
 export const redactValue = (value: unknown): unknown => {
