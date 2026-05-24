@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { addAssetToProject, applyPendingPlan, createExportJob, createPromptEditJob, getJob, getProject, listAssets } from "@/server/state/in-memory";
 
 describe("in-memory P0 orchestration", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("imports media, generates a plan, applies it and exports", async () => {
     const project = getProject("project_demo");
     const initialVersion = project.timeline.version;
@@ -27,5 +31,24 @@ describe("in-memory P0 orchestration", () => {
     const exportRecord = getJob(exportJob.job_id);
     expect(exportRecord?.status).toBe("succeeded");
     expect(JSON.stringify(exportRecord?.output)).toContain("ffmpeg");
+  });
+
+  it("maps codex-cli provider failures to a failed prompt edit job", async () => {
+    vi.stubEnv("LLM_PROVIDER", "codex-cli");
+    vi.stubEnv("CODEX_CLI_BIN", process.execPath);
+    vi.stubEnv("CODEX_CLI_MODEL", "gpt-test");
+    vi.stubEnv("CODEX_CLI_TIMEOUT_MS", "1000");
+
+    const project = getProject("project_demo");
+    const promptJob = await createPromptEditJob({
+      project_id: project.id,
+      timeline_version: project.timeline.version,
+      prompt: "生成一个待确认剪辑方案",
+      locale: "zh-CN",
+    });
+
+    const job = getJob(promptJob.job_id);
+    expect(job?.status).toBe("failed");
+    expect(job?.error?.code).toBe("LLM_PROCESS_FAILED");
   });
 });

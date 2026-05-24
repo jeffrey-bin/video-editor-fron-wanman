@@ -73,10 +73,15 @@ export const buildCodexPrompt = (input: LlmEditRequest): string =>
     JSON.stringify(input, null, 2),
   ].join("\n\n");
 
+const getTimeoutMs = (value: number | string | undefined) => {
+  const parsed = Number(value ?? 30000);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 30000;
+};
+
 export const generateCodexCliEditPlan = async (input: LlmEditRequest, options: CodexCliOptions = {}): Promise<EditPlanResponse> => {
   const bin = options.bin ?? process.env.CODEX_CLI_BIN ?? "codex";
   const model = options.model ?? process.env.CODEX_CLI_MODEL ?? "gpt-5.3-codex";
-  const timeoutMs = options.timeoutMs ?? Number(process.env.CODEX_CLI_TIMEOUT_MS ?? 30000);
+  const timeoutMs = getTimeoutMs(options.timeoutMs ?? process.env.CODEX_CLI_TIMEOUT_MS);
   const spawnFn = options.spawnImpl ?? (spawn as unknown as SpawnLike);
   const child = spawnFn(bin, ["exec", "--model", model, "--json"], {
     stdio: ["pipe", "pipe", "pipe"],

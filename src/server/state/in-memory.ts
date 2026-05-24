@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { applyEditOperations, collectProjectContext, dryRunEditPlan } from "@/server/editor/timeline-ops";
 import { AVAILABLE_OPERATIONS } from "@/server/editor/operation-schema";
 import { EditPlanResponseSchema, LlmEditRequestSchema, type EditPlanResponse } from "@/server/llm/edit-plan-protocol";
-import { generateMockEditPlan } from "@/server/llm/mock-provider";
+import { CodexCliError } from "@/server/llm/codex-cli-provider";
+import { generateConfiguredEditPlan, LlmProviderError } from "@/server/llm/provider";
 import { buildFfmpegCommand } from "@/server/ffmpeg/command-builder";
 import type { ExportPreset, MediaAsset, Project } from "@/types/editor";
 
@@ -108,6 +109,13 @@ const putJob = (job: JobRecord) => {
   return job;
 };
 
+const toJobError = (error: unknown) => {
+  if (error instanceof CodexCliError || error instanceof LlmProviderError) {
+    return { code: error.code, message: error.message };
+  }
+  return { code: "LLM_EDIT_PLAN_FAILED", message: error instanceof Error ? error.message : "Prompt 方案生成失败" };
+};
+
 export const getJob = (jobId: string) => jobs.get(jobId) ?? null;
 
 export const createPromptEditJob = async (input: {
@@ -141,7 +149,17 @@ export const createPromptEditJob = async (input: {
     context: { assets: listAssets(project.id), ...context, available_operations: AVAILABLE_OPERATIONS },
     constraints: { max_operations: 50, require_user_confirmation: true, do_not_modify_source_files: true },
   });
-  const plan = EditPlanResponseSchema.parse(await generateMockEditPlan(request));
+  let plan: EditPlanResponse;
+  try {
+    plan = EditPlanResponseSchema.parse(await generateConfiguredEditPlan(request));
+  } catch (error) {
+    job.status = "failed";
+    job.progress = 100;
+    job.error = toJobError(error);
+    job.output = { request_id: requestId, timeline_version: input.timeline_version, error: job.error };
+    job.updatedAt = now();
+    return { request_id: requestId, job_id: job.id };
+  }
   let state: PendingPlan["state"] = project.timeline.version === input.timeline_version ? "ready" : "stale";
   try {
     if (plan.status !== "failed") dryRunEditPlan(project.timeline, plan.operations);

@@ -73,6 +73,10 @@ export function EditorShell() {
         }),
       }).then((res) => res.json());
       const job = await fetch(`/api/jobs/${request.job_id}`).then((res) => res.json());
+      if (job.job.status === "failed") {
+        setError(job.job.error?.message ?? "Prompt 方案生成失败");
+        return;
+      }
       setPlan(job.job.output);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Prompt 生成失败");
@@ -210,16 +214,16 @@ export function EditorShell() {
               <button key={item} className="chip" onClick={() => setPrompt(item)}>{item}</button>
             ))}
           </div>
-          <button data-testid="run-prompt" className="primary-button" disabled={assets.length === 0 || running} onClick={runPrompt}><Send size={16} />运行（应用到时间线）</button>
+          <button data-testid="run-prompt" className="primary-button" disabled={assets.length === 0 || running} onClick={runPrompt}><Send size={16} />生成待确认方案</button>
         </div>
         <div className="section">
           <div className="llm-card">
             <b>LLM 状态</b>
-            <span><span className="dot" />Local Codex CLI · {running ? "处理中" : "Codex CLI 模拟"}</span>
+            <span><span className="dot" />Local LLM Provider · {running ? "生成方案中" : "待生成方案"}</span>
             <div className="progress"><span style={{ width: running ? "72%" : "100%" }} /></div>
             <pre className="log">{`$ codex exec --model gpt-5.3-codex --json
 analyzing timeline...
-${plan ? "patch ready" : running ? "generating edit plan..." : "connected to local mock provider"}`}</pre>
+${plan ? "review plan ready" : running ? "generating reviewable edit plan..." : "provider selected by LLM_PROVIDER"}`}</pre>
           </div>
         </div>
         {error ? <div className="section"><div className="error-card">错误重试：{error}</div></div> : null}
