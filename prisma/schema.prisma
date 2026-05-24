@@ -76,6 +76,72 @@ model JobRecord {
   @@index([projectId])
 }
 
+model WorkerHeartbeatRecord {
+  runnerId           String   @id
+  role               String
+  status             String
+  version            String
+  commitSha          String?
+  hostname           String?
+  pid                Int?
+  startedAt          DateTime
+  lastHeartbeatAt    DateTime
+  lastJobStartedAt   DateTime?
+  lastJobFinishedAt  DateTime?
+  currentJobId       String?
+  currentQueue       String?
+  processedJobsTotal Int      @default(0)
+  failedJobsTotal    Int      @default(0)
+  metadata           Json?
+  updatedAt          DateTime @updatedAt
+
+  @@index([role, lastHeartbeatAt])
+  @@index([status])
+}
+
+model SchedulerHeartbeatRecord {
+  name                   String   @id
+  runnerId               String
+  status                 String
+  intervalSeconds        Int
+  lastHeartbeatAt        DateTime
+  lastRunStartedAt       DateTime?
+  lastRunFinishedAt      DateTime?
+  lastRunDurationMs      Int?
+  lastScannedRunningJobs Int      @default(0)
+  lastRepairedJobs       Json?
+  lastRequeuedJobs       Json?
+  lastMarkedStalledJobs  Json?
+  lastErrorCode          String?
+  lastErrorMessage       String?
+  updatedAt              DateTime @updatedAt
+}
+
+model JobDiagnosticEventRecord {
+  id              String   @id @default(cuid())
+  jobId           String
+  projectId       String?
+  type            String
+  phase           String
+  code            String
+  message         String
+  retryable       Boolean
+  runnerId        String?
+  queue           String?
+  attempt         Int?
+  command         Json?
+  stderrPreview   String?
+  stdoutPreview   String?
+  objectKey       String?
+  timelineVersion Int?
+  traceId         String?
+  createdAt       DateTime @default(now())
+
+  @@index([jobId, createdAt])
+  @@index([code, createdAt])
+  @@index([projectId, createdAt])
+}
+
 model PendingPlanRecord {
   requestId       String   @id
   projectId        String

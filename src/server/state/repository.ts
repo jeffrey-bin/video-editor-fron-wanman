@@ -52,6 +52,65 @@ export type ExportFileRecord = {
   createdAt: string;
 };
 
+export type WorkerHeartbeatRecord = {
+  runnerId: string;
+  role: "web" | "media-worker" | "llm-worker" | "cleanup-worker" | string;
+  status: "healthy" | "stale" | "draining" | "unhealthy";
+  version: string;
+  commitSha?: string;
+  hostname?: string;
+  pid?: number;
+  startedAt: string;
+  lastHeartbeatAt: string;
+  lastJobStartedAt?: string;
+  lastJobFinishedAt?: string;
+  currentJobId?: string;
+  currentQueue?: JobRecord["type"];
+  processedJobsTotal: number;
+  failedJobsTotal: number;
+  metadata?: unknown;
+  updatedAt: string;
+};
+
+export type SchedulerHeartbeatRecord = {
+  name: "stalled_repair" | string;
+  runnerId: string;
+  status: "healthy" | "running" | "failed" | "stale" | "unhealthy";
+  intervalSeconds: number;
+  lastHeartbeatAt: string;
+  lastRunStartedAt?: string;
+  lastRunFinishedAt?: string;
+  lastRunDurationMs?: number;
+  lastScannedRunningJobs: number;
+  lastRepairedJobs: string[];
+  lastRequeuedJobs: string[];
+  lastMarkedStalledJobs: string[];
+  lastErrorCode?: string;
+  lastErrorMessage?: string;
+  updatedAt: string;
+};
+
+export type JobDiagnosticEventRecord = {
+  id: string;
+  jobId: string;
+  projectId?: string;
+  type: "info" | "warning" | "error";
+  phase: "enqueue" | "start" | "probe" | "llm_call" | "render" | "upload" | "cleanup" | "repair" | string;
+  code: string;
+  message: string;
+  retryable: boolean;
+  runnerId?: string;
+  queue?: JobRecord["type"];
+  attempt?: number;
+  command?: unknown;
+  stderrPreview?: string;
+  stdoutPreview?: string;
+  objectKey?: string;
+  timelineVersion?: number;
+  traceId?: string;
+  createdAt: string;
+};
+
 export type PromptCutDatabase = {
   schemaVersion: 1;
   projects: Record<string, Project>;
@@ -59,6 +118,9 @@ export type PromptCutDatabase = {
   jobs: Record<string, JobRecord>;
   pendingPlans: Record<string, PendingPlan>;
   exports: Record<string, ExportFileRecord>;
+  workerHeartbeats: Record<string, WorkerHeartbeatRecord>;
+  schedulerHeartbeats: Record<string, SchedulerHeartbeatRecord>;
+  diagnostics: Record<string, JobDiagnosticEventRecord[]>;
 };
 
 export type StateRepository = {
@@ -93,7 +155,7 @@ export const createDefaultProjectRecord = (): Project => ({
 
 export const createEmptyDatabase = (): PromptCutDatabase => {
   const project = createDefaultProjectRecord();
-  return { schemaVersion: 1, projects: { [project.id]: project }, assets: { [project.id]: [] }, jobs: {}, pendingPlans: {}, exports: {} };
+  return { schemaVersion: 1, projects: { [project.id]: project }, assets: { [project.id]: [] }, jobs: {}, pendingPlans: {}, exports: {}, workerHeartbeats: {}, schedulerHeartbeats: {}, diagnostics: {} };
 };
 
 export class DurableFsStateRepository implements StateRepository {
@@ -151,12 +213,15 @@ export class PrismaStateRepository implements StateRepository {
   }
 
   async load() {
-    const [projects, assets, jobs, pendingPlans, exports] = await Promise.all([
+    const [projects, assets, jobs, pendingPlans, exports, workerHeartbeats, schedulerHeartbeats, diagnostics] = await Promise.all([
       this.prisma.projectRecord.findMany(),
       this.prisma.assetRecord.findMany(),
       this.prisma.jobRecord.findMany(),
       this.prisma.pendingPlanRecord.findMany(),
       this.prisma.exportFileRecord.findMany(),
+      this.prisma.workerHeartbeatRecord.findMany(),
+      this.prisma.schedulerHeartbeatRecord.findMany(),
+      this.prisma.jobDiagnosticEventRecord.findMany({ orderBy: { createdAt: "asc" } }),
     ]);
     const database = createEmptyDatabase();
     database.projects = {};
@@ -231,6 +296,12 @@ export class PrismaStateRepository implements StateRepository {
     );
     database.pendingPlans = Object.fromEntries(pendingPlans.map((plan) => [plan.requestId, { requestId: plan.requestId, projectId: plan.projectId, timelineVersion: plan.timelineVersion, plan: plan.plan as EditPlanResponse, state: plan.state as PendingPlan["state"], provider: plan.provider, prompt: plan.prompt, createdAt: plan.createdAt.toISOString(), updatedAt: plan.updatedAt.toISOString(), appliedAt: fromDate(plan.appliedAt), expiresAt: fromDate(plan.expiresAt) }]));
     database.exports = Object.fromEntries(exports.map((item) => [item.id, { id: item.id, projectId: item.projectId, jobId: item.jobId, preset: item.preset as ExportPreset, objectKey: item.objectKey, sizeBytes: item.sizeBytes, sha256: item.sha256 ?? undefined, durationMs: item.durationMs, status: item.status as ExportFileRecord["status"], expiresAt: item.expiresAt.toISOString(), createdAt: item.createdAt.toISOString() }]));
+    database.workerHeartbeats = Object.fromEntries(workerHeartbeats.map((item) => [item.runnerId, { runnerId: item.runnerId, role: item.role, status: item.status as WorkerHeartbeatRecord["status"], version: item.version, commitSha: item.commitSha ?? undefined, hostname: item.hostname ?? undefined, pid: item.pid ?? undefined, startedAt: item.startedAt.toISOString(), lastHeartbeatAt: item.lastHeartbeatAt.toISOString(), lastJobStartedAt: fromDate(item.lastJobStartedAt), lastJobFinishedAt: fromDate(item.lastJobFinishedAt), currentJobId: item.currentJobId ?? undefined, currentQueue: item.currentQueue as JobRecord["type"] | undefined, processedJobsTotal: item.processedJobsTotal, failedJobsTotal: item.failedJobsTotal, metadata: item.metadata ?? undefined, updatedAt: item.updatedAt.toISOString() }]));
+    database.schedulerHeartbeats = Object.fromEntries(schedulerHeartbeats.map((item) => [item.name, { name: item.name, runnerId: item.runnerId, status: item.status as SchedulerHeartbeatRecord["status"], intervalSeconds: item.intervalSeconds, lastHeartbeatAt: item.lastHeartbeatAt.toISOString(), lastRunStartedAt: fromDate(item.lastRunStartedAt), lastRunFinishedAt: fromDate(item.lastRunFinishedAt), lastRunDurationMs: item.lastRunDurationMs ?? undefined, lastScannedRunningJobs: item.lastScannedRunningJobs, lastRepairedJobs: (item.lastRepairedJobs as string[] | null) ?? [], lastRequeuedJobs: (item.lastRequeuedJobs as string[] | null) ?? [], lastMarkedStalledJobs: (item.lastMarkedStalledJobs as string[] | null) ?? [], lastErrorCode: item.lastErrorCode ?? undefined, lastErrorMessage: item.lastErrorMessage ?? undefined, updatedAt: item.updatedAt.toISOString() }]));
+    for (const item of diagnostics) {
+      const event: JobDiagnosticEventRecord = { id: item.id, jobId: item.jobId, projectId: item.projectId ?? undefined, type: item.type as JobDiagnosticEventRecord["type"], phase: item.phase, code: item.code, message: item.message, retryable: item.retryable, runnerId: item.runnerId ?? undefined, queue: item.queue as JobRecord["type"] | undefined, attempt: item.attempt ?? undefined, command: item.command ?? undefined, stderrPreview: item.stderrPreview ?? undefined, stdoutPreview: item.stdoutPreview ?? undefined, objectKey: item.objectKey ?? undefined, timelineVersion: item.timelineVersion ?? undefined, traceId: item.traceId ?? undefined, createdAt: item.createdAt.toISOString() };
+      database.diagnostics[event.jobId] = [...(database.diagnostics[event.jobId] ?? []), event];
+    }
     return database;
   }
 
@@ -252,6 +323,9 @@ export class PrismaStateRepository implements StateRepository {
 
   async reset() {
     await this.prisma.$transaction([
+      this.prisma.jobDiagnosticEventRecord.deleteMany(),
+      this.prisma.schedulerHeartbeatRecord.deleteMany(),
+      this.prisma.workerHeartbeatRecord.deleteMany(),
       this.prisma.exportFileRecord.deleteMany(),
       this.prisma.pendingPlanRecord.deleteMany(),
       this.prisma.jobRecord.deleteMany(),
@@ -299,6 +373,29 @@ const persistDatabase = async (tx: Prisma.TransactionClient, database: PromptCut
       create: { id: item.id, projectId: item.projectId, jobId: item.jobId, preset: item.preset, objectKey: item.objectKey, sizeBytes: item.sizeBytes, sha256: item.sha256, durationMs: item.durationMs, status: item.status, expiresAt: new Date(item.expiresAt), createdAt: new Date(item.createdAt) },
       update: { projectId: item.projectId, jobId: item.jobId, preset: item.preset, objectKey: item.objectKey, sizeBytes: item.sizeBytes, sha256: item.sha256, durationMs: item.durationMs, status: item.status, expiresAt: new Date(item.expiresAt) },
     });
+  }
+  for (const item of Object.values(database.workerHeartbeats)) {
+    await tx.workerHeartbeatRecord.upsert({
+      where: { runnerId: item.runnerId },
+      create: { runnerId: item.runnerId, role: item.role, status: item.status, version: item.version, commitSha: item.commitSha, hostname: item.hostname, pid: item.pid, startedAt: new Date(item.startedAt), lastHeartbeatAt: new Date(item.lastHeartbeatAt), lastJobStartedAt: toDate(item.lastJobStartedAt), lastJobFinishedAt: toDate(item.lastJobFinishedAt), currentJobId: item.currentJobId, currentQueue: item.currentQueue, processedJobsTotal: item.processedJobsTotal, failedJobsTotal: item.failedJobsTotal, metadata: item.metadata as Prisma.InputJsonValue, updatedAt: new Date(item.updatedAt) },
+      update: { role: item.role, status: item.status, version: item.version, commitSha: item.commitSha, hostname: item.hostname, pid: item.pid, startedAt: new Date(item.startedAt), lastHeartbeatAt: new Date(item.lastHeartbeatAt), lastJobStartedAt: toDate(item.lastJobStartedAt), lastJobFinishedAt: toDate(item.lastJobFinishedAt), currentJobId: item.currentJobId, currentQueue: item.currentQueue, processedJobsTotal: item.processedJobsTotal, failedJobsTotal: item.failedJobsTotal, metadata: item.metadata as Prisma.InputJsonValue },
+    });
+  }
+  for (const item of Object.values(database.schedulerHeartbeats)) {
+    await tx.schedulerHeartbeatRecord.upsert({
+      where: { name: item.name },
+      create: { name: item.name, runnerId: item.runnerId, status: item.status, intervalSeconds: item.intervalSeconds, lastHeartbeatAt: new Date(item.lastHeartbeatAt), lastRunStartedAt: toDate(item.lastRunStartedAt), lastRunFinishedAt: toDate(item.lastRunFinishedAt), lastRunDurationMs: item.lastRunDurationMs, lastScannedRunningJobs: item.lastScannedRunningJobs, lastRepairedJobs: item.lastRepairedJobs as Prisma.InputJsonValue, lastRequeuedJobs: item.lastRequeuedJobs as Prisma.InputJsonValue, lastMarkedStalledJobs: item.lastMarkedStalledJobs as Prisma.InputJsonValue, lastErrorCode: item.lastErrorCode, lastErrorMessage: item.lastErrorMessage },
+      update: { runnerId: item.runnerId, status: item.status, intervalSeconds: item.intervalSeconds, lastHeartbeatAt: new Date(item.lastHeartbeatAt), lastRunStartedAt: toDate(item.lastRunStartedAt), lastRunFinishedAt: toDate(item.lastRunFinishedAt), lastRunDurationMs: item.lastRunDurationMs, lastScannedRunningJobs: item.lastScannedRunningJobs, lastRepairedJobs: item.lastRepairedJobs as Prisma.InputJsonValue, lastRequeuedJobs: item.lastRequeuedJobs as Prisma.InputJsonValue, lastMarkedStalledJobs: item.lastMarkedStalledJobs as Prisma.InputJsonValue, lastErrorCode: item.lastErrorCode, lastErrorMessage: item.lastErrorMessage },
+    });
+  }
+  for (const events of Object.values(database.diagnostics)) {
+    for (const item of events) {
+      await tx.jobDiagnosticEventRecord.upsert({
+        where: { id: item.id },
+        create: { id: item.id, jobId: item.jobId, projectId: item.projectId, type: item.type, phase: item.phase, code: item.code, message: item.message, retryable: item.retryable, runnerId: item.runnerId, queue: item.queue, attempt: item.attempt, command: item.command as Prisma.InputJsonValue, stderrPreview: item.stderrPreview, stdoutPreview: item.stdoutPreview, objectKey: item.objectKey, timelineVersion: item.timelineVersion, traceId: item.traceId, createdAt: new Date(item.createdAt) },
+        update: { projectId: item.projectId, type: item.type, phase: item.phase, code: item.code, message: item.message, retryable: item.retryable, runnerId: item.runnerId, queue: item.queue, attempt: item.attempt, command: item.command as Prisma.InputJsonValue, stderrPreview: item.stderrPreview, stdoutPreview: item.stdoutPreview, objectKey: item.objectKey, timelineVersion: item.timelineVersion, traceId: item.traceId },
+      });
+    }
   }
 };
 /* v8 ignore stop */

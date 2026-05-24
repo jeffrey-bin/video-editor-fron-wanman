@@ -8,6 +8,7 @@ import { CodexCliError } from "@/server/llm/codex-cli-provider";
 import { generateConfiguredEditPlan, LlmProviderError } from "@/server/llm/provider";
 import { buildFfmpegCommand } from "@/server/ffmpeg/command-builder";
 import { executeExport } from "@/server/ffmpeg/export-executor";
+import { classifyJobError, writeJobDiagnosticEvent } from "@/server/observability/diagnostics";
 import { assertProductionStorageIsConfigured, getStorageConfig } from "@/server/storage/config";
 import { buildObjectKey, createObjectStore, FilesystemObjectStore } from "@/server/storage/object-store";
 import { createDefaultProjectRecord, getStateRepository, type JobRecord, type PendingPlan, type PromptCutDatabase } from "@/server/state/repository";
@@ -277,15 +278,29 @@ export const processPromptEditJob = async (jobId: string) => {
   try {
     plan = EditPlanResponseSchema.parse(await generateConfiguredEditPlan(LlmEditRequestSchema.parse(input.request)));
   } catch (error) {
+    const diagnostic = classifyJobError("llm_call", error);
     await mutateDatabase((db) => {
       const job = db.jobs[jobId];
       if (!job) return;
       job.status = "failed";
       job.progress = 100;
-      job.error = toJobError(error);
+      job.error = { code: diagnostic.code, message: toJobError(error).message };
       job.output = { request_id: input.request_id, timeline_version: input.timeline_version, error: job.error };
       job.finishedAt = now();
       job.updatedAt = now();
+    });
+    await writeJobDiagnosticEvent({
+      jobId,
+      projectId: input.project_id,
+      type: "error",
+      phase: diagnostic.phase,
+      code: diagnostic.code,
+      message: error instanceof Error ? error.message : "Prompt 方案生成失败",
+      retryable: diagnostic.retryable,
+      queue: "llm_edit_plan",
+      attempt: job.attempts + 1,
+      timelineVersion: input.timeline_version,
+      stderrPreview: error,
     });
     return;
   }
@@ -421,14 +436,29 @@ export const processExportJob = async (jobId: string) => {
       job.updatedAt = now();
     });
   } catch (error) {
+    const diagnostic = classifyJobError("render", error);
     await mutateDatabase((db) => {
       const job = db.jobs[jobId];
       job.status = "failed";
       job.progress = 100;
-      job.error = { code: "EXPORT_FAILED", message: error instanceof Error ? error.message : "导出失败" };
+      job.error = { code: diagnostic.code, message: error instanceof Error ? error.message : "导出失败" };
       job.output = { export_id: jobId, export_path: outputPath, object_key: objectKey, preset: input.preset, duration_ms: project.timeline.durationMs };
       job.finishedAt = now();
       job.updatedAt = now();
+    });
+    await writeJobDiagnosticEvent({
+      jobId,
+      projectId: project.id,
+      type: "error",
+      phase: diagnostic.phase,
+      code: diagnostic.code,
+      message: error instanceof Error ? error.message : "导出失败",
+      retryable: diagnostic.retryable,
+      queue: "timeline_export",
+      attempt: jobRecord.attempts + 1,
+      objectKey,
+      timelineVersion: input.timeline_version,
+      stderrPreview: error,
     });
   }
 };
@@ -485,6 +515,23 @@ export const repairStalledJobs = async () =>
           job.status = "stalled";
           job.error = { code: "JOB_LEASE_EXPIRED", message: "Job lease expired and max attempts were exhausted" };
           job.finishedAt = now();
+          database.diagnostics[job.id] = [
+            ...(database.diagnostics[job.id] ?? []),
+            {
+              id: `diag_${randomUUID().slice(0, 12)}`,
+              jobId: job.id,
+              projectId: job.projectId,
+              type: "error",
+              phase: "repair",
+              code: "JOB_LEASE_EXPIRED",
+              message: "Job lease expired and max attempts were exhausted",
+              retryable: false,
+              runnerId: config.runnerId,
+              queue: job.type,
+              attempt: job.attempts,
+              createdAt: now(),
+            },
+          ];
         }
         job.updatedAt = now();
         repaired.push(job.id);
