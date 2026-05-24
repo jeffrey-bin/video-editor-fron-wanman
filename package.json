@@ -13,6 +13,12 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:prompt-quality": "vitest run tests/unit/prompt-edit-quality-eval.test.ts",
+    "media:p5:generate-fixtures": "node scripts/generate-p5-media-fixtures.mjs",
+    "test:media:fixtures": "node scripts/p5-media-fixture-check.mjs",
+    "test:media:analyze": "node scripts/p5-media-analyze.mjs --manifest tests/fixtures/media/manifests/p5-real-media-fixtures.json",
+    "test:media:p5": "node scripts/p5-real-media-runner.mjs",
+    "test:media:p5:smoke": "node scripts/p5-real-media-runner.mjs --provider mock --suite smoke --report test-results/p5-real-media-report.json",
+    "test:media:p5:codex": "node scripts/p5-real-media-runner.mjs --provider codex-cli --suite smoke --report test-results/p5-real-media-codex-report.json",
     "test:e2e": "PLAYWRIGHT_BROWSERS_PATH=.ms-playwright playwright test",
     "playwright:install": "PLAYWRIGHT_BROWSERS_PATH=.ms-playwright playwright install chromium"
   },
