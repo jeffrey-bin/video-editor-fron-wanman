@@ -1,10 +1,8 @@
-const tokenPattern = /([A-Za-z0-9_\-]{4})[A-Za-z0-9_\-]{16,}/g;
+const tokenPattern = /([A-Za-z0-9_-]{4})[A-Za-z0-9_-]{16,}/g;
 const authorizationPattern = /(Authorization\s*:\s*Bearer\s+)([^\s,;"'}]+)/gi;
 const cookiePattern = /((?:Cookie|Set-Cookie)\s*:\s*)([^,\n\r]+)/gi;
 const apiKeyPattern = /((?:OPENAI_API_KEY|ANTHROPIC_API_KEY|OBJECT_STORAGE_SECRET_ACCESS_KEY|OBJECT_STORAGE_ACCESS_KEY_ID|CODEX_[A-Z_]*TOKEN)\s*[=:]\s*)([^\s,;"'}]+)/gi;
 const credentialUrlPattern = /\b(postgresql|postgres|redis):\/\/([^@\s]+)@([^\s"'<>]+)/gi;
-
-const redactToken = (value: string) => (value.length >= 8 ? `${value.slice(0, 4)}...[REDACTED]` : "[REDACTED]");
 
 export const redactString = (input: string) => {
   let output = input

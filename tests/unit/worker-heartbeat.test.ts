@@ -47,4 +47,37 @@ describe("worker heartbeat", () => {
     const workers = await listWorkerHeartbeats(90);
     expect(workers.workers[0].status).toBe("healthy");
   });
+
+  it("marks stale workers and scheduler records in the health aggregate", async () => {
+    const staleAt = new Date(Date.now() - 120_000).toISOString();
+    await getStateRepository().mutate((database) => {
+      database.workerHeartbeats.stale_worker = {
+        runnerId: "stale_worker",
+        role: "media-worker",
+        status: "healthy",
+        version: "0.1.0",
+        startedAt: staleAt,
+        lastHeartbeatAt: staleAt,
+        processedJobsTotal: 0,
+        failedJobsTotal: 0,
+        updatedAt: staleAt,
+      };
+      database.schedulerHeartbeats.stalled_repair = {
+        name: "stalled_repair",
+        runnerId: "cleanup-worker-test",
+        status: "healthy",
+        intervalSeconds: 60,
+        lastHeartbeatAt: staleAt,
+        lastScannedRunningJobs: 1,
+        lastRepairedJobs: ["job_1"],
+        lastRequeuedJobs: ["job_1"],
+        lastMarkedStalledJobs: [],
+        updatedAt: staleAt,
+      };
+    });
+    const { listWorkerHeartbeats } = await import("@/server/workers/heartbeat");
+    const aggregate = await listWorkerHeartbeats(30);
+    expect(aggregate.workers[0].status).toBe("stale");
+    expect(aggregate.scheduler).toMatchObject({ status: "stale", last_repair_result: { repaired_job_ids: ["job_1"], requeued_job_ids: ["job_1"] } });
+  });
 });

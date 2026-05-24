@@ -69,6 +69,9 @@ describe("external storage, S3 and queue boundaries", () => {
     expect(schema).toContain("model PendingPlanRecord");
     expect(schema).toContain("model ExportFileRecord");
     expect(schema).toContain("model StateMeta");
+    expect(schema).toContain("model WorkerHeartbeatRecord");
+    expect(schema).toContain("model SchedulerHeartbeatRecord");
+    expect(schema).toContain("model JobDiagnosticEventRecord");
   });
 
   it("pins Prisma 6 generation so E2E does not drift to Prisma 7 config semantics", async () => {
@@ -138,6 +141,16 @@ describe("external storage, S3 and queue boundaries", () => {
     expect(workers).toHaveLength(4);
     expect(workerMock).toHaveBeenCalledWith("llm_edit_plan", expect.any(Function), expect.objectContaining({ lockDuration: 45000 }));
     expect(workerMock).toHaveBeenCalledWith("timeline_export", expect.any(Function), expect.objectContaining({ lockDuration: 45000 }));
+  });
+
+  it("guards stalled repair loop to external storage mode", async () => {
+    const { startStalledJobRepairLoop } = await import("@/server/workers/promptcut-worker");
+    expect(() => startStalledJobRepairLoop()).toThrow("requires PROMPTCUT_STATE_DRIVER=external");
+    vi.stubEnv("PROMPTCUT_STATE_DRIVER", "external");
+    vi.stubEnv("DATABASE_URL", "postgresql://user:pass@db.example/promptcut");
+    vi.stubEnv("REDIS_URL", "redis://redis.example:6379");
+    const loop = startStalledJobRepairLoop(60_000);
+    loop.stop();
   });
 
   it("repairs expired leases so another worker instance can retry or mark stalled", async () => {
