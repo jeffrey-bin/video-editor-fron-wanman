@@ -150,7 +150,7 @@ describe("ffmpeg command builder", () => {
     ]);
     const joined = command.args.join(" ");
     expect(joined).toContain("[1:a:0]atrim=start=2.500:end=11.500");
-    expect(joined).toContain("adelay=1500:all=1");
+    expect(joined).toContain("adelay=1500|1500");
     expect(joined).toContain("between(t,0.500,3.500)");
     expect(joined).not.toContain("between(t,2.000,5.000)");
   });
@@ -190,7 +190,7 @@ describe("ffmpeg command builder", () => {
     ]);
     const joined = command.args.join(" ");
     expect(joined).toContain("[1:a:0]atrim=start=4.000:end=10.000,asetpts=PTS-STARTPTS,atrim=start=0.750,asetpts=PTS-STARTPTS");
-    expect(joined).toContain("adelay=2250:all=1");
+    expect(joined).toContain("adelay=2250|2250");
     expect(joined).toContain("between(t,2.750,4.250)");
     expect(joined).not.toContain("between(t,5.000,6.500)");
     expect(joined).not.toContain("between(t,7.750,8.750)");

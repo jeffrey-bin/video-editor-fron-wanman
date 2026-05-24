@@ -1,9 +1,7 @@
 /* eslint-env node */
-/* global console, process */
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { EditOperation } from "../src/server/editor/operation-schema";
 import { AVAILABLE_OPERATIONS } from "../src/server/editor/operation-schema";
 import { applyEditOperations, collectProjectContext, dryRunEditPlan } from "../src/server/editor/timeline-ops";

@@ -66,7 +66,7 @@ process.stdin.on("end", () => {
   const mixedTrack = audioTracks.find((track) => track.role === "mixed");
   const speechSegments = request.context.audio?.analysis?.speech_segments ?? [{ start_ms: 1000, end_ms: 7000, confidence: 0.9 }];
   const range = prompt.match(/(\d+)\s*(?:到|-|~)\s*(\d+)\s*秒?/);
-  const isDeleteIntent = /删除|删掉|剪掉|开头|空白|片尾|最后|前\s*\d/.test(prompt);
+  const isDeleteIntent = /删除|删掉|剪掉|空白|片尾|最后|前\s*\d/.test(prompt);
 
   if (/duck|压低|盖住|恢复|背景音乐.*(?:小|低)|配乐.*(?:小|低)/.test(prompt)) {
     if (voiceTrack && musicTrack) {
