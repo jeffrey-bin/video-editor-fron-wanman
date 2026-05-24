@@ -78,7 +78,7 @@ describe("P5 real media quality schemas and assertions", () => {
       version: 1,
       run_id: "p5-real-media-test",
       provider: "mock",
-      summary: { total: 1, passed: 1, failed: 0, hard_failures: 0 },
+      summary: { total: 1, passed: 1, failed: 0, skipped: 0, hard_failures: 0 },
       environment: { ffmpeg_version: "ffmpeg test", ffprobe_version: "ffprobe test", node_version: process.version, ci: false },
       cases: [
         {
@@ -100,5 +100,33 @@ describe("P5 real media quality schemas and assertions", () => {
       ],
     });
     expect(report.cases[0]?.output_path).not.toContain("/home/");
+  });
+
+  it("keeps every P5 case assertion mapped to an explicit report assertion name", () => {
+    const runnerAssertionNames = new Set([
+      "output_hash_changed",
+      "audio_not_empty",
+      "video_not_placeholder",
+      "integrated_lufs",
+      "true_peak_dbfs_max",
+      "segment_rms_delta_db_max",
+      "mute_segment_rms_max",
+      "mute_boundaries_preserved",
+      "duck_music_delta_db",
+      "duck_release_recovers",
+      "fade_trend",
+      "fade_duration_ms",
+      "noise_floor_reduced_db",
+      "speech_rms_preserved",
+      "video_brightened",
+      "video_saturation_increased",
+      "unsupported_mixed_track",
+    ]);
+    const missing = P5_PROMPT_CASES.flatMap((qualityCase) =>
+      qualityCase.assertions
+        .filter((item) => !runnerAssertionNames.has(item.name))
+        .map((item) => `${qualityCase.id}:${item.name}`),
+    );
+    expect(missing).toEqual([]);
   });
 });

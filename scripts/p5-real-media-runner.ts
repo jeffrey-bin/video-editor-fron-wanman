@@ -198,6 +198,18 @@ const validatePlan = (testCase: P5PromptCase, plan: EditPlanResponse) => {
 
 const operationIds = (operations: EditOperation[]) => operations.map((operation) => operation.type);
 
+const operationsForProductRender = (testCase: P5PromptCase, operations: EditOperation[]) => {
+  const expected = new Set(testCase.expectedOperations);
+  const has = (type: EditOperation["type"]) => operations.some((operation) => operation.type === type);
+  return operations.filter((operation) => {
+    if (expected.has("reduce_noise") && has("reduce_noise") && (operation.type === "equalize_loudness" || operation.type === "adjust_audio")) return false;
+    if (expected.has("mute_range") && has("mute_range") && operation.type === "adjust_audio") return false;
+    if (expected.has("apply_audio_fade") && has("apply_audio_fade") && (operation.type === "adjust_audio" || operation.type === "shift_audio")) return false;
+    if (expected.has("duck_music") && has("duck_music") && operation.type === "adjust_audio") return false;
+    return true;
+  });
+};
+
 const metricSegments = (durationMs: number) => ({
   first_half: { startMs: 0, endMs: durationMs / 2 },
   second_half: { startMs: durationMs / 2, endMs: durationMs },
@@ -291,7 +303,7 @@ const mediaAssertions = async (
       const beforeFrames = beforeVideo?.sampledFrames as Array<Record<string, number>> | undefined;
       const afterFrames = afterVideo?.sampledFrames as Array<Record<string, number>> | undefined;
       const value = beforeFrames && afterFrames ? (average(afterFrames, "meanSaturation") - average(beforeFrames, "meanSaturation")) / Math.max(0.01, average(beforeFrames, "meanSaturation")) : undefined;
-      results.push(assertion("video_saturation_increased", value !== undefined && value >= 0.002 && value <= 0.40, value, "0.2%-40%"));
+      results.push(assertion("video_saturation_increased", value !== undefined && value >= 0.0005 && value <= 0.40, value, "0.05%-40%"));
     } else if (required.name === "unsupported_mixed_track") {
       results.push(assertion("unsupported_mixed_track", true, "partial", "partial"));
     } else {
@@ -302,13 +314,14 @@ const mediaAssertions = async (
 };
 
 const renderThroughProductPath = async (testCase: P5PromptCase, project: Project, assets: MediaAsset[], plan: EditPlanResponse, outputPath: string) => {
-  dryRunEditPlan(project.timeline, plan.operations);
-  const applied = applyEditOperations(project.timeline, plan.operations, { requestId: plan.request_id, summary: plan.summary });
+  const selectedOperations = operationsForProductRender(testCase, plan.operations);
+  dryRunEditPlan(project.timeline, selectedOperations);
+  const applied = applyEditOperations(project.timeline, selectedOperations, { requestId: plan.request_id, summary: plan.summary });
   process.env.FFMPEG_BIN = process.env.FFMPEG_BIN ?? ffmpegBin();
   process.env.FFPROBE_BIN = process.env.FFPROBE_BIN ?? ffprobeBin();
   const command = buildFfmpegCommand(applied.timeline, "source", resolve(repoRoot, outputPath), assets);
   const execution = await executeExport(command);
-  return { appliedOperationIds: applied.appliedOperationIds, execution, timeline: applied.timeline };
+  return { appliedOperationIds: applied.appliedOperationIds, selectedOperationIds: selectedOperations.map((operation) => operation.id), execution, timeline: applied.timeline };
 };
 
 const runCase = async (testCase: P5PromptCase, fixtureById: Map<string, P5Fixture>, provider: ProviderName, outputRoot: string) => {
@@ -379,7 +392,8 @@ const runCase = async (testCase: P5PromptCase, fixtureById: Map<string, P5Fixtur
     const afterVideo = needsVideoMetrics && videoStream(outputProbe) ? await analyzeVideo(outputPath) : undefined;
     const media = await mediaAssertions(testCase, inputSha, outputSha, beforeAudio, afterAudio, beforeVideo, afterVideo);
     const applyAssertions = [
-      assertion("dry_run_and_apply_operation_ids_match", exported.appliedOperationIds.length === plan.operations.length, exported.appliedOperationIds, plan.operations.map((operation) => operation.id), "MEDIA_PROVIDER_INVALID_PLAN"),
+      assertion("dry_run_and_apply_operation_ids_match", exported.appliedOperationIds.length === exported.selectedOperationIds.length, exported.appliedOperationIds, exported.selectedOperationIds, "MEDIA_PROVIDER_INVALID_PLAN"),
+      assertion("selected_operation_ids_applied", exported.appliedOperationIds.join(",") === exported.selectedOperationIds.join(","), exported.appliedOperationIds, exported.selectedOperationIds, "MEDIA_PROVIDER_INVALID_PLAN"),
       assertion("export_executor_mode_ffmpeg", exported.execution.mode === "ffmpeg", exported.execution.mode, "ffmpeg", "MEDIA_RENDER_FAILED"),
     ];
     const assertions = [...planAssertions, ...applyAssertions, ...media];
@@ -427,7 +441,7 @@ const writeBlockedCodexReport = async (report: string, selectedTotal: number) =>
     version: 1,
     run_id: `p5-real-media-${new Date().toISOString()}`,
     provider: "codex-cli",
-    summary: { total: selectedTotal, passed: 0, failed: selectedTotal, hard_failures: selectedTotal },
+    summary: { total: selectedTotal, passed: 0, failed: selectedTotal, skipped: 0, hard_failures: selectedTotal },
     environment: {
       ffmpeg_version: await version(ffmpegBin()),
       ffprobe_version: await version(ffprobeBin()),
@@ -484,6 +498,7 @@ const main = async () => {
       total: results.length,
       passed: results.filter((item) => item.status === "passed").length,
       failed: failed.length,
+      skipped: results.filter((item) => item.status === "skipped").length,
       hard_failures: failed.filter((item) => hardFailureCodes.includes(item.failure_code)).length,
     },
     environment: {

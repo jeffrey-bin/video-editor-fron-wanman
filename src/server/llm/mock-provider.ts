@@ -144,7 +144,7 @@ export const generateMockEditPlan = async (input: LlmEditRequest): Promise<EditP
         rationale: "降低稳定背景噪声并保留人声可懂度。",
       });
     }
-    if (!operations.some((operation) => operation.type === "reduce_noise") && /音量|忽大忽小|爆音|响度|统一|稳定|短视频|适合/.test(prompt)) {
+    if (/音量|忽大忽小|爆音|响度|统一|稳定|短视频|适合/.test(prompt)) {
       ensureAvailable("equalize_loudness");
       operations.push({
         id: "op_equalize_loudness",
@@ -157,7 +157,7 @@ export const generateMockEditPlan = async (input: LlmEditRequest): Promise<EditP
     if (/duck|压低|盖住|恢复|背景音乐.*(?:小|低)|配乐.*(?:小|低)/.test(prompt)) {
       ensureAvailable("duck_music");
       if (!voiceTrack || !musicTrack) {
-        const mixedTrack = audioTracks(input).find((track) => track.role === "mixed" || track.role === "unknown");
+        const mixedTrack = audioTracks(input).find((track) => track.role === "mixed");
         const range = selectedRange(input);
         const reviewOperation: EditOperation[] = hasOperation(input, "mark_review_range") && mixedTrack
           ? [{
@@ -305,14 +305,13 @@ export const generateMockEditPlan = async (input: LlmEditRequest): Promise<EditP
         params: {
           brightness: /亮|明亮/.test(prompt) ? 0.08 : undefined,
           contrast: /对比度|自然|肤色/.test(prompt) ? 0.05 : undefined,
-          saturation: /饱和度|自然|肤色/.test(prompt) ? 0.18 : undefined,
+          saturation: /饱和度|自然|肤色/.test(prompt) ? 0.04 : undefined,
         },
         rationale: "轻度提升画面亮度、对比度或饱和度。",
       });
     }
   }
-  const hasSpecializedAudioOperation = operations.some((operation) => ["reduce_noise", "duck_music", "mute_range", "apply_audio_fade", "shift_audio"].includes(operation.type));
-  if (!hasSpecializedAudioOperation && /人声|声音|音频|增强|音量/.test(prompt) && hasOperation(input, "adjust_audio")) {
+  if (/人声|降噪|噪声|声音|音频|增强|静音|淡入|淡出|音量/.test(prompt) && hasOperation(input, "adjust_audio")) {
     const audioClip = firstAudioClip(input);
     if (audioClip) {
       operations.push({
@@ -322,9 +321,9 @@ export const generateMockEditPlan = async (input: LlmEditRequest): Promise<EditP
         params: {
           normalize: /人声|降噪|声音|音频|增强|音量/.test(prompt) ? true : undefined,
           volume_db: /人声|声音|增强|音量/.test(prompt) ? 2 : undefined,
-          muted: undefined,
-          fade_in_ms: undefined,
-          fade_out_ms: undefined,
+          muted: /静音/.test(prompt) ? true : undefined,
+          fade_in_ms: /淡入/.test(prompt) ? 1000 : undefined,
+          fade_out_ms: /淡出/.test(prompt) ? 1000 : undefined,
         },
         rationale: "根据 Prompt 调整音频响度、静音或淡入淡出。",
       });

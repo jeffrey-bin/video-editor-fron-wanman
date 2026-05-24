@@ -95,12 +95,13 @@ export const P5ReportSchema = z.object({
   version: z.literal(1),
   run_id: z.string(),
   provider: z.enum(["mock", "codex-cli"]),
-  summary: z.object({
-    total: z.number().int().nonnegative(),
-    passed: z.number().int().nonnegative(),
-    failed: z.number().int().nonnegative(),
-    hard_failures: z.number().int().nonnegative(),
-  }),
+    summary: z.object({
+      total: z.number().int().nonnegative(),
+      passed: z.number().int().nonnegative(),
+      failed: z.number().int().nonnegative(),
+      skipped: z.number().int().nonnegative(),
+      hard_failures: z.number().int().nonnegative(),
+    }),
   environment: z.object({
     ffmpeg_version: z.string(),
     ffprobe_version: z.string(),
