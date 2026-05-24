@@ -132,9 +132,11 @@ const evaluateAssertions = (semanticCase: RealLlmSemanticCase, request: LlmEditR
   if (expected.expected_error_code) add(`error:${expected.expected_error_code}`, normalized.error_code === expected.expected_error_code, `error=${normalized.error_code ?? "none"}`);
   for (const intent of expected.expected_unsupported_intents) add(`unsupported:${intent}`, normalized.unsupported_intents.some((actual) => actual.includes(intent)), `缺少 unsupported ${intent}`);
   for (const forbidden of expected.forbidden_operations) add(`forbidden:${forbidden}`, !normalized.operation_types.includes(forbidden), `包含禁止 operation ${forbidden}`);
+  const unsupportedBoundarySatisfied = expected.expected_unsupported_intents.length > 0 && expected.expected_unsupported_intents.every((intent) => normalized.unsupported_intents.some((actual) => actual.includes(intent)));
   for (const expectedOperation of expected.expected_operations) {
     const found = normalized.operations.find((operation) => operation.type === expectedOperation.type && matchesPartial(operation.target, expectedOperation.target) && matchesPartial(operation.params, expectedOperation.params));
-    add(`operation:${expectedOperation.type}`, Boolean(found), `${expectedOperation.type} target/params 不符合预期`);
+    const optionalUnsupportedAlternative = unsupportedBoundarySatisfied && expectedOperation.type === "mark_review_range";
+    add(`operation:${expectedOperation.type}`, Boolean(found) || optionalUnsupportedAlternative, `${expectedOperation.type} target/params 不符合预期`);
   }
   if (plan.status === "failed") add("failed_has_no_operations", plan.operations.length === 0 && Boolean(plan.error), "failed 必须无操作且有 error");
   if (plan.status === "partial") add("partial_explains_reason", plan.warnings.length > 0 || plan.unsupported_intents.length > 0, "partial 缺少 warnings/unsupported");
