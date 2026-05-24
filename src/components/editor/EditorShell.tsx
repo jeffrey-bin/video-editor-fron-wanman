@@ -45,9 +45,10 @@ export function EditorShell() {
   }, [project]);
 
   const handleImport = async (file?: File) => {
-    if (!file || !project) return;
+    if (!file) return;
+    const activeProject = project ?? (await fetch("/api/projects").then((res) => res.json())).project;
     const body = new FormData();
-    body.append("projectId", project.id);
+    body.append("projectId", activeProject.id);
     body.append("file", file);
     const data = await fetch("/api/assets", { method: "POST", body }).then((res) => res.json());
     setAssets((current) => [...current, data.asset]);
@@ -154,7 +155,7 @@ export function EditorShell() {
         </div>
         <div className="actions">
           <button className="icon-button" title="设置"><Settings size={16} /></button>
-          <button className="primary-button" onClick={exportTimeline}><Download size={16} />导出</button>
+          <button data-testid="export-timeline" className="primary-button" onClick={exportTimeline}><Download size={16} />导出</button>
         </div>
       </header>
 

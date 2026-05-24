@@ -33,10 +33,25 @@ type PendingPlan = {
 
 const now = () => new Date().toISOString();
 
-const projects = new Map<string, Project>();
-const assets = new Map<string, MediaAsset[]>();
-const jobs = new Map<string, JobRecord>();
-const pendingPlans = new Map<string, PendingPlan>();
+type PromptCutState = {
+  projects: Map<string, Project>;
+  assets: Map<string, MediaAsset[]>;
+  jobs: Map<string, JobRecord>;
+  pendingPlans: Map<string, PendingPlan>;
+};
+
+const stateKey = "__promptcutState";
+const globalState = globalThis as typeof globalThis & { [stateKey]?: PromptCutState };
+const store =
+  globalState[stateKey] ??
+  (globalState[stateKey] = {
+    projects: new Map<string, Project>(),
+    assets: new Map<string, MediaAsset[]>(),
+    jobs: new Map<string, JobRecord>(),
+    pendingPlans: new Map<string, PendingPlan>(),
+  });
+
+const { projects, assets, jobs, pendingPlans } = store;
 const runtimeRoot = join(process.cwd(), ".promptcut-runtime");
 
 export const createDefaultProject = () => {

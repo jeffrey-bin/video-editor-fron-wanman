@@ -16,7 +16,7 @@ test("P0 flow: import asset, prompt plan, apply, export", async ({ page }) => {
   await page.getByTestId("apply-plan").click();
   await expect(page.getByText("版本 3")).toBeVisible();
   const exportResponsePromise = page.waitForResponse((response) => response.url().endsWith("/api/exports") && response.request().method() === "POST");
-  await page.getByRole("button", { name: /导出/ }).click();
+  await page.getByTestId("export-timeline").click();
   const exportResponse = await exportResponsePromise;
   expect(exportResponse.ok()).toBe(true);
   const exportPayload = (await exportResponse.json()) as { job_id: string };
