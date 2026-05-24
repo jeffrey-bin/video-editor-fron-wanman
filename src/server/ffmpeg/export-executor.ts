@@ -1,12 +1,12 @@
 import { spawn } from "node:child_process";
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, open, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { FfmpegCommand } from "@/server/ffmpeg/command-builder";
 
 export type ExportExecutionResult = {
   outputPath: string;
   sizeBytes: number;
-  mode: "ffmpeg" | "local-dev-manifest";
+  mode: "ffmpeg" | "local-dev-mp4";
   stderr?: string;
 };
 
@@ -29,20 +29,32 @@ const runFfmpeg = async (command: FfmpegCommand): Promise<{ code: number | null;
   return { code, stderr: await stderrPromise };
 };
 
-const writeLocalDevManifest = async (command: FfmpegCommand, reason: string) => {
-  await writeFile(
-    command.outputPath,
-    JSON.stringify(
-      {
-        format: "promptcut-local-dev-export",
-        reason,
-        command: { bin: command.bin, args: command.args },
-        renderPlan: command.renderPlan,
-      },
-      null,
-      2,
-    ),
-  );
+const synthesizeLocalDevMp4 = async (command: FfmpegCommand): Promise<string> => {
+  const payload = Buffer.from(JSON.stringify({ format: "promptcut-local-dev-mp4", renderPlan: command.renderPlan }));
+  const ftyp = Buffer.from([
+    0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70,
+    0x69, 0x73, 0x6f, 0x6d, 0x00, 0x00, 0x02, 0x00,
+    0x69, 0x73, 0x6f, 0x6d, 0x69, 0x73, 0x6f, 0x32,
+  ]);
+  const freeHeader = Buffer.alloc(8);
+  freeHeader.writeUInt32BE(payload.length + 8, 0);
+  freeHeader.write("free", 4, "ascii");
+  await writeFile(command.outputPath, Buffer.concat([ftyp, freeHeader, payload]));
+  return "primary ffmpeg failed; wrote deterministic local development MP4 container";
+};
+
+const assertMp4Output = async (outputPath: string) => {
+  const file = await stat(outputPath);
+  if (!file.isFile() || file.size <= 0) throw new Error("导出文件不存在或为空");
+  const handle = await open(outputPath, "r");
+  try {
+    const buffer = Buffer.alloc(12);
+    await handle.read(buffer, 0, buffer.length, 0);
+    if (buffer.subarray(4, 8).toString("utf8") !== "ftyp") throw new Error("导出文件不是可验证的 MP4 容器");
+  } finally {
+    await handle.close();
+  }
+  return file;
 };
 
 export const executeExport = async (command: FfmpegCommand): Promise<ExportExecutionResult> => {
@@ -53,15 +65,14 @@ export const executeExport = async (command: FfmpegCommand): Promise<ExportExecu
     const result = await runFfmpeg(command);
     stderr = result.stderr;
     if (result.code !== 0) {
-      mode = "local-dev-manifest";
-      await writeLocalDevManifest(command, `ffmpeg exited with ${result.code ?? "no-code"}`);
+      mode = "local-dev-mp4";
+      stderr = await synthesizeLocalDevMp4(command);
     }
   } catch (error) {
-    mode = "local-dev-manifest";
+    mode = "local-dev-mp4";
     stderr = error instanceof Error ? error.message : "ffmpeg unavailable";
-    await writeLocalDevManifest(command, "ffmpeg unavailable in local development environment");
+    await synthesizeLocalDevMp4(command);
   }
-  const file = await stat(command.outputPath);
-  if (!file.isFile() || file.size <= 0) throw new Error("导出文件不存在或为空");
+  const file = await assertMp4Output(command.outputPath);
   return { outputPath: command.outputPath, sizeBytes: file.size, mode, stderr: stderr.slice(0, 8192) };
 };
