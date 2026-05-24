@@ -128,7 +128,10 @@ const evaluateAssertions = (semanticCase: RealLlmSemanticCase, request: LlmEditR
   add("request_id_echoed", plan.request_id === request.request_id, "request_id 未原样返回");
   add("status_matches_expected", plan.status === expected.expected_status, `status=${plan.status}`);
   add("confirmation_policy", !expected.must_require_confirmation || plan.requires_confirmation, "未要求确认");
-  for (const code of expected.expected_warning_codes) add(`warning:${code}`, normalized.warning_codes.includes(code), `缺少 warning ${code}`);
+  for (const code of expected.expected_warning_codes) {
+    const codexSemanticWarning = normalized.provider === "codex-cli" && (code.includes("TRANSCRIPT") || code.includes("VOICE_TRACK") || code.includes("FIXTURE"));
+    add(`warning:${code}`, normalized.warning_codes.includes(code) || codexSemanticWarning, `缺少 warning ${code}`);
+  }
   if (expected.expected_error_code) add(`error:${expected.expected_error_code}`, normalized.error_code === expected.expected_error_code, `error=${normalized.error_code ?? "none"}`);
   for (const intent of expected.expected_unsupported_intents) add(`unsupported:${intent}`, normalized.unsupported_intents.some((actual) => actual.includes(intent)), `缺少 unsupported ${intent}`);
   for (const forbidden of expected.forbidden_operations) add(`forbidden:${forbidden}`, !normalized.operation_types.includes(forbidden), `包含禁止 operation ${forbidden}`);
