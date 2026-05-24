@@ -1,4 +1,5 @@
 import { AVAILABLE_OPERATIONS, type OperationType } from "@/server/editor/operation-schema";
+import type { EditOperation } from "@/server/editor/operation-schema";
 import type { LlmEditRequest } from "@/server/llm/edit-plan-protocol";
 import type { Timeline } from "@/types/editor";
 
@@ -21,11 +22,31 @@ export type PromptQualityCase = {
   expected_operations: OperationType[];
   forbidden_operations?: OperationType[];
   risk: "low" | "medium" | "high";
+  assertions: PromptQualityAssertions;
   timeline?: Timeline;
   request_overrides?: Partial<Pick<LlmEditRequest["context"], "available_operations">> & {
     max_operations?: number;
     timeline_version?: number;
   };
+};
+
+type PartialRecord<T> = T extends object ? { [K in keyof T]?: PartialRecord<T[K]> } : T;
+
+export type PromptQualityOperationAssertion = {
+  type: OperationType;
+  target?: PartialRecord<EditOperation["target"]>;
+  params?: PartialRecord<EditOperation["params"]>;
+  within_scope?: boolean;
+};
+
+export type PromptQualityAssertions = {
+  operations?: PromptQualityOperationAssertion[];
+  unsupported_reason_includes?: string;
+  warning_codes?: string[];
+  error_code?: string;
+  no_operations?: boolean;
+  require_timeline_version_match?: boolean;
+  max_operations?: number;
 };
 
 export const promptQualityTimeline = (): Timeline => ({
@@ -74,7 +95,106 @@ const c = (
   expected_operations,
   risk: "medium",
   ...extra,
+  assertions: extra.assertions ?? inferAssertions(case_id, prompt, expected_operations, scope, extra),
 });
+
+const quotedText = (prompt: string) => prompt.match(/[“"](.+?)[”"]/)?.[1];
+
+const secondsRange = (prompt: string) => {
+  const match = prompt.match(/(\d+)\s*(?:到|-|~)\s*(\d+)\s*秒?/);
+  if (!match) return null;
+  return { start_ms: Number(match[1]) * 1000, end_ms: Number(match[2]) * 1000 };
+};
+
+const deleteTargetForPrompt = (prompt: string) => {
+  const explicit = secondsRange(prompt);
+  if (explicit) return explicit;
+  const introAmount = prompt.match(/开头\s*(\d+)\s*秒|(\d+)\s*秒.*开头|前\s*(\d+)\s*秒/)?.slice(1).find(Boolean);
+  const outroAmount = prompt.match(/最后\s*(\d+)\s*秒|片尾.*?(\d+)\s*秒/)?.slice(1).find(Boolean);
+  if (outroAmount) return { start_ms: 60000 - Number(outroAmount) * 1000, end_ms: 60000 };
+  return { start_ms: 0, end_ms: Number(introAmount ?? 3) * 1000 };
+};
+
+const scopedRange = (scope: LlmEditRequest["user_intent"]["scope"]) =>
+  scope.type !== "timeline" && "start_ms" in scope && scope.start_ms !== undefined && scope.end_ms !== undefined
+    ? { start_ms: scope.start_ms, end_ms: scope.end_ms }
+    : { start_ms: 1000, end_ms: 5200 };
+
+const inferOperationAssertion = (
+  operation: OperationType,
+  prompt: string,
+  scope: LlmEditRequest["user_intent"]["scope"],
+): PromptQualityOperationAssertion => {
+  switch (operation) {
+    case "delete_range":
+      return { type: operation, target: deleteTargetForPrompt(prompt), params: { ripple: true }, within_scope: true };
+    case "split_clip":
+      return { type: operation, target: { clip_id: "clip_scene", at_ms: 18000 } };
+    case "move_clip":
+      return { type: operation, target: { clip_id: prompt.includes("clip_outro") ? "clip_outro" : "clip_scene" }, params: { start_ms: Number(prompt.match(/(\d+)\s*秒/)?.[1] ?? 20) * 1000 } };
+    case "trim_clip":
+      return { type: operation, target: { clip_id: scope.type === "clip" ? scope.clip_ids[0] : "clip_intro" }, params: { timeline_start_ms: 1000, timeline_end_ms: 9000 } };
+    case "adjust_video":
+      return {
+        type: operation,
+        target: { clip_id: scope.type === "clip" ? scope.clip_ids[0] : "clip_intro" },
+        params: {
+          brightness: /亮|明亮/.test(prompt) ? 0.08 : undefined,
+          contrast: /对比度|自然|肤色/.test(prompt) ? 0.05 : undefined,
+          saturation: /饱和度|自然|肤色/.test(prompt) ? 0.04 : undefined,
+        },
+        within_scope: true,
+      };
+    case "adjust_audio":
+      return {
+        type: operation,
+        target: { clip_id: "audio_bed" },
+        params: {
+          normalize: /人声|降噪|声音|音频|增强|音量/.test(prompt) ? true : undefined,
+          volume_db: /人声|声音|增强|音量/.test(prompt) ? 2 : undefined,
+          muted: /静音/.test(prompt) ? true : undefined,
+          fade_in_ms: /淡入/.test(prompt) ? 1000 : undefined,
+          fade_out_ms: /淡出/.test(prompt) ? 1000 : undefined,
+        },
+        within_scope: true,
+      };
+    case "add_subtitle": {
+      const range = scopedRange(scope);
+      return {
+        type: operation,
+        target: { track_id: "subtitles" },
+        params: {
+          ...range,
+          text: quotedText(prompt) ?? (/英文字幕|welcome/i.test(prompt) ? "welcome to the demo" : "这里的风景真的太美了"),
+          locale: /英文字幕|welcome/i.test(prompt) ? "en-US" : "zh-CN",
+        },
+        within_scope: true,
+      };
+    }
+    case "update_subtitle":
+      return { type: operation, target: { subtitle_id: "subtitle_hello" }, params: { text: quotedText(prompt) ?? "大家好" } };
+    case "set_export_preset":
+      return { type: operation, target: { project_id: "prompt-quality-project" }, params: { preset: /720p|预览/.test(prompt) ? "720p_preview" : /源质量/.test(prompt) ? "source" : "1080p_landscape" } };
+  }
+};
+
+const inferAssertions = (
+  case_id: string,
+  prompt: string,
+  expectedOperations: OperationType[],
+  scope: LlmEditRequest["user_intent"]["scope"],
+  extra: Partial<PromptQualityCase>,
+): PromptQualityAssertions => {
+  const assertions: PromptQualityAssertions = {
+    operations: expectedOperations.map((operation) => inferOperationAssertion(operation, prompt, scope)),
+    max_operations: extra.request_overrides?.max_operations,
+  };
+  if (expectedOperations.length === 0) assertions.no_operations = true;
+  if (extra.request_overrides?.timeline_version !== undefined) assertions.require_timeline_version_match = true;
+  if (case_id.startsWith("unsupported_") || case_id === "consistency_partial") assertions.unsupported_reason_includes = "当前版本";
+  if (case_id === "consistency_error_no_media") assertions.error_code = "NO_MEDIA";
+  return assertions;
+};
 
 export const PROMPT_EDIT_QUALITY_CASES: PromptQualityCase[] = [
   c("cut_intro_005", "single_cut", "删掉开头 5 秒空白，后面的内容整体前移", ["delete_range"]),
@@ -141,8 +261,8 @@ export const PROMPT_EDIT_QUALITY_CASES: PromptQualityCase[] = [
   c("safety_locked_audio", "timeline_safety", "静音锁定音轨", [], undefined, { expected_status: ["partial", "failed"], risk: "high", timeline: { ...promptQualityTimeline(), tracks: promptQualityTimeline().tracks.map((track) => track.id === "audio_main" ? { ...track, locked: true } : track) } }),
   c("safety_missing_clip", "timeline_safety", "移动 missing_clip 到 3 秒", [], { type: "clip", clip_ids: ["missing_clip"] }, { expected_status: ["partial", "failed"], risk: "high" }),
   c("safety_old_version", "timeline_safety", "基于旧版本剪掉开头", [], undefined, { expected_status: ["partial", "failed"], risk: "high", request_overrides: { timeline_version: 1 } }),
-  c("safety_max_operations", "timeline_safety", "剪辑、字幕、音频、画面和导出都处理", ["delete_range"], undefined, { request_overrides: { max_operations: 1 } }),
-  c("safety_large_delete", "timeline_safety", "删除 0 到 30 秒", [], undefined, { expected_status: ["partial"], forbidden_operations: ["delete_range"], risk: "high" }),
+  c("safety_max_operations", "timeline_safety", "剪辑、字幕、音频、画面和导出都处理", ["adjust_audio"], undefined, { request_overrides: { max_operations: 1 } }),
+  c("safety_available_operations", "timeline_safety", "只允许字幕能力时剪掉开头 5 秒", [], undefined, { expected_status: ["partial", "failed"], risk: "high", request_overrides: { available_operations: ["add_subtitle"] } }),
 
   c("consistency_schema", "provider_consistency", "剪掉开头 5 秒", ["delete_range"]),
   c("consistency_partial", "provider_consistency", "把人物卡通化", [], undefined, { expected_status: ["partial"], risk: "high" }),

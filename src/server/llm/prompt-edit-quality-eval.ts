@@ -29,10 +29,82 @@ export type PromptQualityRunResult = {
 
 export const normalizePlan = (plan: EditPlanResponse) => ({
   status: plan.status,
-  operationTypes: plan.operations.map((operation) => operation.type),
+  operations: plan.operations.map((operation) => ({ type: operation.type, target: operation.target, params: operation.params })),
   unsupportedIntents: plan.unsupported_intents.map((intent) => intent.intent).sort(),
+  unsupportedReasons: plan.unsupported_intents.map((intent) => intent.reason).sort(),
+  warningCodes: plan.warnings.map((warning) => warning.code).sort(),
+  errorCode: plan.error?.code,
   requiresConfirmation: plan.requires_confirmation,
 });
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
+const matchesPartial = (actual: unknown, expected: unknown): boolean => {
+  if (expected === undefined) return true;
+  if (isPlainObject(expected)) {
+    if (!isPlainObject(actual)) return false;
+    return Object.entries(expected).every(([key, value]) => matchesPartial(actual[key], value));
+  }
+  return actual === expected;
+};
+
+const operationWithinScope = (operation: EditPlanResponse["operations"][number], request: LlmEditRequest) => {
+  const scope = request.user_intent.scope;
+  if (scope.type === "clip" && "clip_id" in operation.target) return scope.clip_ids.includes(operation.target.clip_id);
+  if (scope.type === "subtitle" && "subtitle_id" in operation.target && scope.subtitle_ids) return scope.subtitle_ids.includes(operation.target.subtitle_id);
+  if (scope.type === "selection") {
+    if (operation.type === "delete_range") return operation.target.start_ms >= scope.start_ms && operation.target.end_ms <= scope.end_ms;
+    if (operation.type === "add_subtitle") return operation.params.start_ms >= scope.start_ms && operation.params.end_ms <= scope.end_ms;
+  }
+  return true;
+};
+
+const applyStructuredAssertions = (qualityCase: PromptQualityCase, request: LlmEditRequest, plan: EditPlanResponse, reasons: string[]) => {
+  const assertions = qualityCase.assertions;
+  let penalty = 0;
+  if (assertions.require_timeline_version_match && request.project.timeline_version !== (qualityCase.timeline ?? promptQualityTimeline()).version && plan.status === "succeeded") {
+    reasons.push("timeline_version 旧版本请求不得直接 succeeded");
+    penalty += 40;
+  }
+  if (assertions.max_operations !== undefined && plan.operations.length > assertions.max_operations) {
+    reasons.push(`operation 数量超过 max_operations: ${plan.operations.length} > ${assertions.max_operations}`);
+    penalty += 30;
+  }
+  if (assertions.no_operations && plan.operations.length > 0) {
+    reasons.push("负向样例不应返回 operations");
+    penalty += 35;
+  }
+  const unsupportedReasonIncludes = assertions.unsupported_reason_includes;
+  if (unsupportedReasonIncludes) {
+    if (!plan.unsupported_intents.some((intent) => intent.reason.includes(unsupportedReasonIncludes))) {
+      reasons.push(`unsupported reason 未包含: ${unsupportedReasonIncludes}`);
+      penalty += 25;
+    }
+  }
+  for (const code of assertions.warning_codes ?? []) {
+    if (!plan.warnings.some((warning) => warning.code === code)) {
+      reasons.push(`缺少 warning code: ${code}`);
+      penalty += 15;
+    }
+  }
+  if (assertions.error_code && plan.error?.code !== assertions.error_code) {
+    reasons.push(`error code=${plan.error?.code ?? "none"} 不符合预期 ${assertions.error_code}`);
+    penalty += 25;
+  }
+  for (const assertion of assertions.operations ?? []) {
+    const operation = plan.operations.find((candidate) => candidate.type === assertion.type && matchesPartial(candidate.target, assertion.target) && matchesPartial(candidate.params, assertion.params));
+    if (!operation) {
+      reasons.push(`关键断言失败: ${assertion.type} target/params 不符合预期`);
+      penalty += 30;
+      continue;
+    }
+    if (assertion.within_scope && !operationWithinScope(operation, request)) {
+      reasons.push(`关键断言失败: ${assertion.type} 超出 request scope`);
+      penalty += 30;
+    }
+  }
+  return penalty;
+};
 
 const scoreCase = (qualityCase: PromptQualityCase, request: LlmEditRequest, plan: EditPlanResponse) => {
   const reasons: string[] = [];
@@ -66,6 +138,7 @@ const scoreCase = (qualityCase: PromptQualityCase, request: LlmEditRequest, plan
       score -= 30;
     }
   }
+  score -= applyStructuredAssertions(qualityCase, request, plan, reasons);
   if ((qualityCase.risk === "high" || plan.confidence < 0.6) && !plan.requires_confirmation) {
     reasons.push("高风险或低置信度计划未要求确认");
     score -= 20;
@@ -110,7 +183,7 @@ export const evaluatePromptQualityProvider = async (
         continue;
       }
       const { score, reasons, operationTypes } = scoreCase(qualityCase, request, parsed.data);
-      const hardFailure = reasons.some((reason) => reason.includes("schema") || reason.includes("dry-run") || reason.includes("超出 available_operations") || reason.includes("failed 仍返回"));
+      const hardFailure = reasons.some((reason) => reason.includes("schema") || reason.includes("dry-run") || reason.includes("超出 available_operations") || reason.includes("failed 仍返回") || reason.includes("关键断言失败") || reason.includes("timeline_version"));
       caseResults.push({ case_id: qualityCase.case_id, category: qualityCase.category, passed: score >= 80 && !hardFailure, hard_failure: hardFailure, score, reasons, operation_types: operationTypes });
     } catch (error) {
       caseResults.push({ case_id: qualityCase.case_id, category: qualityCase.category, passed: false, hard_failure: true, score: 0, reasons: [error instanceof Error ? error.message : String(error)], operation_types: [] });

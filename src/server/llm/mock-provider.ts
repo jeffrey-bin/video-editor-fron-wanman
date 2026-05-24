@@ -95,15 +95,16 @@ export const generateMockEditPlan = async (input: LlmEditRequest): Promise<EditP
     if (target.end_ms > input.project.duration_ms || (/删除\s*0\s*(?:到|-|~)\s*30\s*秒/.test(prompt) && target.end_ms - target.start_ms > input.project.duration_ms * 0.2)) {
       return partialPlan(input, "删除范围越界或超过总时长 20%，需要更明确确认。", [{ code: "HIGH_RISK_DELETE", message: "高风险删除不会由 mock provider 直接生成可应用操作。" }]);
     }
-    if (hasOperation(input, "delete_range")) {
-      operations.push({
-        id: "op_delete_range",
-        type: "delete_range",
-        target,
-        params: { ripple: true },
-        rationale: "根据 Prompt 删除指定时间范围并波纹前移。",
-      });
+    if (!hasOperation(input, "delete_range")) {
+      return partialPlan(input, "当前请求没有可用操作可表达。", [{ code: "NO_AVAILABLE_OPERATION", message: "available_operations 未包含 delete_range。" }]);
     }
+    operations.push({
+      id: "op_delete_range",
+      type: "delete_range",
+      target,
+      params: { ripple: true },
+      rationale: "根据 Prompt 删除指定时间范围并波纹前移。",
+    });
   }
   if (/裁剪|trim/.test(prompt) && hasOperation(input, "trim_clip")) {
     const videoClip = firstVideoClip(input);
@@ -179,7 +180,7 @@ export const generateMockEditPlan = async (input: LlmEditRequest): Promise<EditP
       });
     }
   }
-  if (/字幕|caption|英文字幕/i.test(prompt)) {
+  if (/字幕|caption|英文字幕|subtitle_/i.test(prompt) || input.user_intent.scope.type === "subtitle") {
     if (/改成|修正|更新/.test(prompt) && hasOperation(input, "update_subtitle")) {
       const subtitle = subtitleClip(input);
       if (subtitle) {
