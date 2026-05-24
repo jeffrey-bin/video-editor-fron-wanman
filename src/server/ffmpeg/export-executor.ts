@@ -1,12 +1,12 @@
 import { spawn } from "node:child_process";
-import { mkdir, open, stat, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { FfmpegCommand } from "@/server/ffmpeg/command-builder";
 
 export type ExportExecutionResult = {
   outputPath: string;
   sizeBytes: number;
-  mode: "ffmpeg" | "local-dev-mp4";
+  mode: "ffmpeg";
   stderr?: string;
 };
 
@@ -19,28 +19,15 @@ const readLimited = (stream: NodeJS.ReadableStream, limit = 8192): Promise<strin
     stream.on("end", () => resolve(output));
   });
 
-const runFfmpeg = async (command: FfmpegCommand): Promise<{ code: number | null; stderr: string }> => {
-  const child = spawn(command.bin, command.args, { stdio: ["ignore", "ignore", "pipe"] });
+const runProcess = async (bin: string, args: string[]): Promise<{ code: number | null; stdout: string; stderr: string }> => {
+  const child = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
+  const stdoutPromise = readLimited(child.stdout);
   const stderrPromise = readLimited(child.stderr);
   const code = await new Promise<number | null>((resolve, reject) => {
     child.on("error", reject);
     child.on("close", (value) => resolve(typeof value === "number" ? value : null));
   });
-  return { code, stderr: await stderrPromise };
-};
-
-const synthesizeLocalDevMp4 = async (command: FfmpegCommand): Promise<string> => {
-  const payload = Buffer.from(JSON.stringify({ format: "promptcut-local-dev-mp4", renderPlan: command.renderPlan }));
-  const ftyp = Buffer.from([
-    0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70,
-    0x69, 0x73, 0x6f, 0x6d, 0x00, 0x00, 0x02, 0x00,
-    0x69, 0x73, 0x6f, 0x6d, 0x69, 0x73, 0x6f, 0x32,
-  ]);
-  const freeHeader = Buffer.alloc(8);
-  freeHeader.writeUInt32BE(payload.length + 8, 0);
-  freeHeader.write("free", 4, "ascii");
-  await writeFile(command.outputPath, Buffer.concat([ftyp, freeHeader, payload]));
-  return "primary ffmpeg failed; wrote deterministic local development MP4 container";
+  return { code, stdout: await stdoutPromise, stderr: await stderrPromise };
 };
 
 const assertMp4Output = async (outputPath: string) => {
@@ -54,25 +41,24 @@ const assertMp4Output = async (outputPath: string) => {
   } finally {
     await handle.close();
   }
+  const contents = await readFile(outputPath);
+  if (contents.includes("promptcut-local-dev-mp4")) throw new Error("导出文件是伪 MP4，拒绝标记为成功");
   return file;
+};
+
+const assertFfprobeOutput = async (command: FfmpegCommand) => {
+  const result = await runProcess(command.ffprobeBin, ["-v", "error", "-show_format", "-show_streams", "-of", "json", command.outputPath]);
+  if (result.code !== 0) throw new Error(`ffprobe 校验失败: ${result.stderr || "无法解析导出文件"}`);
+  const payload = JSON.parse(result.stdout || "{}") as { streams?: unknown[]; format?: { format_name?: string } };
+  if (!Array.isArray(payload.streams) || payload.streams.length === 0) throw new Error("ffprobe 校验失败: 导出文件没有可解码媒体流");
+  if (!payload.format?.format_name?.includes("mp4")) throw new Error("ffprobe 校验失败: 导出文件不是 MP4 格式");
 };
 
 export const executeExport = async (command: FfmpegCommand): Promise<ExportExecutionResult> => {
   await mkdir(dirname(command.outputPath), { recursive: true });
-  let mode: ExportExecutionResult["mode"] = "ffmpeg";
-  let stderr = "";
-  try {
-    const result = await runFfmpeg(command);
-    stderr = result.stderr;
-    if (result.code !== 0) {
-      mode = "local-dev-mp4";
-      stderr = await synthesizeLocalDevMp4(command);
-    }
-  } catch (error) {
-    mode = "local-dev-mp4";
-    stderr = error instanceof Error ? error.message : "ffmpeg unavailable";
-    await synthesizeLocalDevMp4(command);
-  }
+  const result = await runProcess(command.bin, command.args);
+  if (result.code !== 0) throw new Error(`ffmpeg 导出失败: ${result.stderr || `exit ${result.code ?? "unknown"}`}`);
   const file = await assertMp4Output(command.outputPath);
-  return { outputPath: command.outputPath, sizeBytes: file.size, mode, stderr: stderr.slice(0, 8192) };
+  await assertFfprobeOutput(command);
+  return { outputPath: command.outputPath, sizeBytes: file.size, mode: "ffmpeg", stderr: result.stderr.slice(0, 8192) };
 };

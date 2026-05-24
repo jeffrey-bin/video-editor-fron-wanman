@@ -2,7 +2,8 @@ import type { ExportPreset, MediaAsset, Timeline } from "@/types/editor";
 import { buildRenderPlan, type RenderPlan } from "@/server/ffmpeg/timeline-renderer";
 
 export type FfmpegCommand = {
-  bin: "ffmpeg";
+  bin: string;
+  ffprobeBin: string;
   args: string[];
   outputPath: string;
   requiresReencode: boolean;
@@ -50,5 +51,5 @@ export const buildFfmpegCommand = (timeline: Timeline, preset: ExportPreset, out
     args.push("-c", "copy");
   }
   args.push("-movflags", "+faststart", outputPath);
-  return { bin: "ffmpeg", args, outputPath, requiresReencode, renderPlan };
+  return { bin: process.env.FFMPEG_BIN ?? "ffmpeg", ffprobeBin: process.env.FFPROBE_BIN ?? "ffprobe", args, outputPath, requiresReencode, renderPlan };
 };
