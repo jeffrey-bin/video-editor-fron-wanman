@@ -8,7 +8,7 @@ export default defineConfig({
     trace: "on-first-retry"
   },
   webServer: {
-    command: "rm -rf .next && FFMPEG_BIN=./tests/fixtures/fake-ffmpeg.mjs FFPROBE_BIN=./tests/fixtures/fake-ffprobe.mjs npm run dev -- --hostname 127.0.0.1 --port 3000",
+    command: "rm -rf .next .promptcut-e2e-runtime && npm run prisma:generate && FFMPEG_BIN=./tests/fixtures/fake-ffmpeg.mjs FFPROBE_BIN=./tests/fixtures/fake-ffprobe.mjs PROMPTCUT_RUNTIME_ROOT=.promptcut-e2e-runtime npm run build && FFMPEG_BIN=./tests/fixtures/fake-ffmpeg.mjs FFPROBE_BIN=./tests/fixtures/fake-ffprobe.mjs PROMPTCUT_RUNTIME_ROOT=.promptcut-e2e-runtime npm run start -- --hostname 127.0.0.1 --port 3000",
     url: "http://127.0.0.1:3000",
     reuseExistingServer: false,
     timeout: 120000

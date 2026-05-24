@@ -65,6 +65,17 @@ describe("external storage, S3 and queue boundaries", () => {
     expect(schema).toContain("model StateMeta");
   });
 
+  it("pins Prisma 6 generation so E2E does not drift to Prisma 7 config semantics", async () => {
+    const packageJson = JSON.parse(await readFile(join(process.cwd(), "package.json"), "utf8"));
+    const lockJson = JSON.parse(await readFile(join(process.cwd(), "package-lock.json"), "utf8"));
+    expect(packageJson.scripts.postinstall).toBe("prisma generate");
+    expect(packageJson.scripts["prisma:generate"]).toBe("prisma generate");
+    expect(packageJson.dependencies["@prisma/client"]).toBe("6.19.0");
+    expect(packageJson.devDependencies.prisma).toBe("6.19.0");
+    expect(lockJson.packages[""].dependencies["@prisma/client"]).toBe("6.19.0");
+    expect(lockJson.packages[""].devDependencies.prisma).toBe("6.19.0");
+  });
+
   it("requires database and redis bindings for production external state", async () => {
     const { assertProductionStorageIsConfigured, getStorageConfig } = await import("@/server/storage/config");
     vi.stubEnv("NODE_ENV", "production");

@@ -6,6 +6,7 @@ import type { EditPlanResponse } from "@/server/llm/edit-plan-protocol";
 import type { MediaAsset, Project, Timeline } from "@/types/editor";
 
 type JobOutput = { request_id: string; plan: EditPlanResponse; timeline_version: number; plan_state: "ready" | "stale" | "invalid" };
+type ProjectPayload = { project: Project; assets: MediaAsset[] };
 
 const ms = (value: number) => {
   const total = Math.floor(value / 1000);
@@ -46,14 +47,34 @@ export function EditorShell() {
 
   const handleImport = async (file?: File) => {
     if (!file) return;
-    const activeProject = project ?? (await fetch("/api/projects").then((res) => res.json())).project;
-    const body = new FormData();
-    body.append("projectId", activeProject.id);
-    body.append("file", file);
-    const data = await fetch("/api/assets", { method: "POST", body }).then((res) => res.json());
-    setAssets((current) => [...current, data.asset]);
-    const latest = await fetch("/api/projects").then((res) => res.json());
-    setProject(latest.project);
+    setError(null);
+    try {
+      const activeState = project ? { project, assets } : await fetch("/api/projects").then(async (res) => {
+        if (!res.ok) throw new Error("项目初始化失败");
+        return (await res.json()) as ProjectPayload;
+      });
+      setProject(activeState.project);
+      setAssets(activeState.assets);
+      const body = new FormData();
+      body.append("projectId", activeState.project.id);
+      body.append("file", file);
+      const importResponse = await fetch("/api/assets", { method: "POST", body });
+      const data = await importResponse.json();
+      if (!importResponse.ok || !data.asset) {
+        setError(data.error?.message ?? "素材导入失败");
+        return;
+      }
+      const latestResponse = await fetch("/api/projects");
+      if (!latestResponse.ok) {
+        setAssets((current) => [...current, data.asset]);
+        return;
+      }
+      const latest = (await latestResponse.json()) as ProjectPayload;
+      setProject(latest.project);
+      setAssets(latest.assets);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "素材导入失败");
+    }
   };
 
   const runPrompt = async () => {
