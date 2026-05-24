@@ -7,7 +7,8 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const distRoot = resolve(repoRoot, "test-results/p5-runner-dist");
+const distRoot = resolve(repoRoot, `test-results/p5-runner-dist-${process.pid}`);
+const tempTsconfig = resolve(repoRoot, `scripts/.tsconfig.p5-runner.${process.pid}.json`);
 const tscBin = resolve(repoRoot, "node_modules/.bin/tsc");
 
 const run = (bin, args) => {
@@ -17,7 +18,13 @@ const run = (bin, args) => {
 
 await rm(distRoot, { recursive: true, force: true });
 await mkdir(resolve(distRoot, "scripts"), { recursive: true });
-run(tscBin, ["-p", "scripts/tsconfig.p5-runner.json"]);
+const tsconfig = (await readFile(resolve(repoRoot, "scripts/tsconfig.p5-runner.json"), "utf8")).replace(
+  "\"outDir\": \"../test-results/p5-runner-dist\"",
+  `"outDir": "../test-results/p5-runner-dist-${process.pid}"`,
+);
+await writeFile(tempTsconfig, tsconfig);
+run(tscBin, ["-p", tempTsconfig]);
+await rm(tempTsconfig, { force: true });
 
 const patchEsmSpecifiers = async (dir) => {
   for (const entry of await readdir(dir)) {
