@@ -50,9 +50,9 @@ const seedObservabilityState = async () => {
         attempts: 2,
         maxAttempts: 2,
         createdAt: new Date(now - 90_000).toISOString(),
-        updatedAt: new Date(now - 20_000).toISOString(),
+        updatedAt: new Date(now - 35_000).toISOString(),
         startedAt: new Date(now - 65_000).toISOString(),
-        finishedAt: new Date(now - 20_000).toISOString(),
+        finishedAt: new Date(now - 35_000).toISOString(),
       },
       export_waiting: {
         id: "export_waiting",
