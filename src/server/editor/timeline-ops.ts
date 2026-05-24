@@ -237,6 +237,17 @@ export const applyEditOperations = (
         found.clip.volumeDb = operation.params.volume_db ?? found.clip.volumeDb;
         found.clip.muted = operation.params.muted ?? found.clip.muted;
         found.clip.filters = { ...found.clip.filters, normalize: operation.params.normalize ?? found.clip.filters?.normalize };
+        const duration = found.clip.endMs - found.clip.startMs;
+        const fadeInMs = operation.params.fade_in_ms;
+        const fadeOutMs = operation.params.fade_out_ms;
+        if (fadeInMs !== undefined) {
+          if (fadeInMs > duration / 2) throw new Error("FADE_DURATION_TOO_LONG");
+          found.clip.audioEffects = [...(found.clip.audioEffects ?? []), { id: `${operation.id}_fade_in`, type: "audio_fade", fadeType: "in", durationMs: fadeInMs, curve: "linear" }];
+        }
+        if (fadeOutMs !== undefined) {
+          if (fadeOutMs > duration / 2) throw new Error("FADE_DURATION_TOO_LONG");
+          found.clip.audioEffects = [...(found.clip.audioEffects ?? []), { id: `${operation.id}_fade_out`, type: "audio_fade", fadeType: "out", durationMs: fadeOutMs, curve: "linear" }];
+        }
         break;
       }
       case "set_export_preset":

@@ -32,4 +32,6 @@ test("P4 flow: audio prompt review, transcript panel, apply and export", async (
   expect(jobPayload.job.status).toBe("succeeded");
   expect(jobPayload.job.output.command.args.join(" ")).toContain("afftdn");
   expect(jobPayload.job.output.command.args.join(" ")).toContain("loudnorm");
+  expect(jobPayload.job.output.command.args.join(" ")).toContain("-filter_complex");
+  expect(jobPayload.job.output.command.args.join(" ")).toContain("[aout]");
 });

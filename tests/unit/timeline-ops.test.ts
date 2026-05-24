@@ -75,6 +75,16 @@ describe("timeline ops", () => {
     expect(result.warnings[0]).toContain("720p_preview");
   });
 
+  it("converts adjust_audio fade parameters into real audio fade effects", () => {
+    const result = applyEditOperations(timeline(), [
+      { id: "audio-fade", type: "adjust_audio", target: { clip_id: "audio" }, params: { fade_in_ms: 500, fade_out_ms: 750 }, rationale: "淡入淡出" },
+    ], { requestId: "req", summary: "legacy fade" });
+    expect(result.timeline.tracks[1].clips[0].audioEffects).toEqual([
+      { id: "audio-fade_fade_in", type: "audio_fade", fadeType: "in", durationMs: 500, curve: "linear" },
+      { id: "audio-fade_fade_out", type: "audio_fade", fadeType: "out", durationMs: 750, curve: "linear" },
+    ]);
+  });
+
   it("handles delete-range edge cases and rejects malformed source ranges", () => {
     const splitDelete = timeline();
     const result = applyEditOperations(splitDelete, [

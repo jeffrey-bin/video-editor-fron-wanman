@@ -19,6 +19,7 @@ const command = (args: string[], outputPath: string): FfmpegCommand => ({
   renderPlan: {
     durationMs: 1000,
     segments: [{ clipId: "clip", trackId: "video", assetId: "asset", inputPath: "/tmp/input.mp4", timelineStartMs: 0, timelineEndMs: 1000, sourceStartMs: 0, sourceEndMs: 1000 }],
+    audioSegments: [],
     subtitles: [],
     hasVideoFilters: false,
     hasAudioFilters: false,

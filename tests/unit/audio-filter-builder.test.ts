@@ -53,7 +53,8 @@ describe("P4 audio filter builder", () => {
   it("forces re-encode in export command when audio effects are present", () => {
     const command = buildFfmpegCommand(timeline, "source", "out.mp4", assets);
     expect(command.requiresReencode).toBe(true);
-    expect(command.args.join(" ")).toContain("-af");
+    expect(command.args.join(" ")).toContain("-filter_complex");
+    expect(command.args.join(" ")).toContain("[aout]");
     expect(command.args.join(" ")).toContain("-c:a aac");
   });
 });
