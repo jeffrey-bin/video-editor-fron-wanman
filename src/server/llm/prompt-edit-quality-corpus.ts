@@ -11,7 +11,8 @@ export type PromptQualityCategory =
   | "conflict"
   | "capability_boundary"
   | "timeline_safety"
-  | "provider_consistency";
+  | "provider_consistency"
+  | "audio";
 
 export type PromptQualityCase = {
   case_id: string;
@@ -68,7 +69,28 @@ export const promptQualityTimeline = (): Timeline => ({
       id: "audio_main",
       kind: "audio",
       name: "主音频",
+      role: "voice",
+      analysis: {
+        loudnessLufs: -19.5,
+        peakDbfs: -2.1,
+        noiseFloorDbfs: -48,
+        speechSegments: [{ startMs: 10000, endMs: 45000, confidence: 0.91 }],
+        silenceSegments: [{ startMs: 0, endMs: 900, confidence: 0.9 }],
+        transcriptSegments: [
+          { startMs: 0, endMs: 4000, text: "欢迎来到今天的演示", confidence: 0.98, source: "mock" },
+          { startMs: 9350, endMs: 12600, text: "自动降噪和智能闪避配乐", confidence: 0.72, source: "mock" },
+        ],
+        avSyncOffsetMs: 180,
+        analysisSource: "mock",
+      },
       clips: [{ id: "audio_bed", trackId: "audio_main", kind: "audio", assetId: "asset_audio", startMs: 0, endMs: 60000, sourceStartMs: 0, sourceEndMs: 60000 }],
+    },
+    {
+      id: "music",
+      kind: "audio",
+      name: "配乐",
+      role: "music",
+      clips: [{ id: "music_bed", trackId: "music", kind: "audio", assetId: "asset_audio", startMs: 0, endMs: 60000, sourceStartMs: 0, sourceEndMs: 60000, volumeDb: -12 }],
     },
     {
       id: "subtitles",
@@ -158,8 +180,29 @@ const inferOperationAssertion = (
         },
         within_scope: true,
       };
+    case "reduce_noise":
+      return { type: operation, params: { strength: /强|大幅/.test(prompt) ? 0.72 : 0.45, preserve_voice: true }, within_scope: true };
+    case "equalize_loudness":
+      return { type: operation, params: { target_lufs: -16, limit_peak_dbfs: -1 }, within_scope: true };
+    case "duck_music":
+      return { type: operation, target: { voice_track_id: "audio_main", music_track_id: "music" }, params: { duck_db: -9, attack_ms: 120, release_ms: 650 }, within_scope: true };
+    case "mute_range": {
+      const range = secondsRange(prompt) ?? scopedRange(scope);
+      return { type: operation, target: range, params: { preserve_video: true }, within_scope: true };
+    }
+    case "apply_audio_fade":
+      return { type: operation, target: { clip_id: "audio_bed" }, params: { duration_ms: 1200 }, within_scope: true };
+    case "shift_audio":
+      return { type: operation, params: { offset_ms: /提前|早/.test(prompt) ? -300 : 300, affects_linked_video: false }, within_scope: true };
+    case "shift_subtitle_timing":
+      return { type: operation, target: { track_id: "subtitles" }, params: { offset_ms: /提前|早/.test(prompt) ? -300 : 300 }, within_scope: true };
+    case "mark_review_range":
+      return { type: operation, params: { reason_code: "AUDIO_REVIEW" }, within_scope: true };
     case "add_subtitle": {
       const range = scopedRange(scope);
+      if (/生成.*字幕|转写|他说的话/.test(prompt)) {
+        return { type: operation, target: { track_id: "subtitles" }, params: { source: "mock_transcript" }, within_scope: true };
+      }
       return {
         type: operation,
         target: { track_id: "subtitles" },
@@ -268,6 +311,47 @@ export const PROMPT_EDIT_QUALITY_CASES: PromptQualityCase[] = [
   c("consistency_partial", "provider_consistency", "把人物卡通化", [], undefined, { expected_status: ["partial"], risk: "high" }),
   c("consistency_error_no_media", "provider_consistency", "剪掉开头", [], undefined, { expected_status: ["failed"], risk: "high", timeline: { version: 3, durationMs: 60000, history: [], tracks: [] } }),
   c("consistency_confirmation", "provider_consistency", "删除 10 到 20 秒并增强人声", ["delete_range", "adjust_audio"], undefined, { risk: "high" }),
+  c("audio_reduce_noise", "audio", "把背景噪声降一下，让人声更清楚", ["reduce_noise"]),
+  c("audio_reduce_hum", "audio", "降低电流声但保留人声", ["reduce_noise"]),
+  c("audio_reduce_wind", "audio", "风噪有点大，尝试改善", ["reduce_noise"]),
+  c("audio_reduce_strong_confirm", "audio", "强力降噪让人声清楚", ["reduce_noise"], undefined, { risk: "high", assertions: { operations: [{ type: "reduce_noise", params: { strength: 0.72, preserve_voice: true } }], warning_codes: ["AUDIO_DISTORTION_RISK"] } }),
+  c("audio_equalize_voice", "audio", "音量忽大忽小，帮我统一一下", ["equalize_loudness"]),
+  c("audio_equalize_no_peak", "audio", "不要爆音，声音更稳定", ["equalize_loudness"]),
+  c("audio_equalize_short_video", "audio", "整段声音调到适合短视频", ["equalize_loudness"]),
+  c("audio_duck_music", "audio", "人说话的时候把背景音乐压低", ["duck_music"]),
+  c("audio_duck_restore", "audio", "配乐别盖住人声，讲话结束后音乐恢复", ["duck_music"]),
+  c("audio_duck_with_noise", "audio", "把人声弄清楚，背景音乐在人说话时小一点", ["reduce_noise", "duck_music"]),
+  c("audio_mute_range", "audio", "把 3 到 5 秒静音，画面保留", ["mute_range"]),
+  c("audio_mute_selection", "audio", "这段不要声音，画面保留", ["mute_range"], { type: "selection", start_ms: 10000, end_ms: 15000 }),
+  c("audio_mute_music", "audio", "把背景音乐关掉，但保留人声", ["mute_range"]),
+  c("audio_fade_in", "audio", "开头声音淡入", ["apply_audio_fade"]),
+  c("audio_fade_out", "audio", "结尾音乐慢慢淡出", ["apply_audio_fade"]),
+  c("audio_fade_tail", "audio", "结尾不要突然断掉", ["apply_audio_fade"]),
+  c("audio_subtitle_transcript", "audio", "把他说的话变成字幕", ["add_subtitle"], undefined, { assertions: { operations: [{ type: "add_subtitle", params: { source: "mock_transcript", text: "欢迎来到今天的演示" } }], warning_codes: ["MOCK_TRANSCRIPT_SOURCE"] } }),
+  c("audio_caption_cn", "audio", "生成中文字幕", ["add_subtitle"], undefined, { assertions: { operations: [{ type: "add_subtitle", params: { source: "mock_transcript" } }], warning_codes: ["MOCK_TRANSCRIPT_SOURCE"] } }),
+  c("audio_shift_300", "audio", "声音比画面慢 300ms，帮我对齐", ["shift_audio"]),
+  c("audio_shift_early", "audio", "音频提前 300ms", ["shift_audio"]),
+  c("audio_subtitle_shift_late", "audio", "字幕出现太晚 300ms", ["shift_subtitle_timing"]),
+  c("audio_subtitle_shift_early", "audio", "字幕出现太早 300ms", ["shift_subtitle_timing"]),
+  c("audio_combo_polish", "audio", "降噪、统一音量，并把配乐在人声时压低", ["reduce_noise", "equalize_loudness", "duck_music"]),
+  c("audio_combo_fade_duck", "audio", "背景音乐在人声时压低，结尾淡出", ["duck_music", "apply_audio_fade"]),
+  c("audio_combo_subtitle_sync", "audio", "生成字幕并把字幕跟声音对齐 300ms", ["add_subtitle", "shift_subtitle_timing"]),
+  c("audio_no_analysis", "audio", "把背景噪音降一下", [], undefined, { expected_status: ["partial"], risk: "medium", timeline: { ...promptQualityTimeline(), tracks: promptQualityTimeline().tracks.map((track) => track.id === "audio_main" ? { ...track, analysis: { analysisSource: "none" } } : track) }, assertions: { warning_codes: ["AUDIO_ANALYSIS_REQUIRED"], no_operations: true } }),
+  c("audio_unknown_roles_duck", "audio", "配乐别盖住人声", [], undefined, { expected_status: ["partial"], risk: "medium", timeline: { ...promptQualityTimeline(), tracks: promptQualityTimeline().tracks.map((track) => track.kind === "audio" ? { ...track, role: "unknown" } : track) }, assertions: { warning_codes: ["TRACK_ROLE_UNKNOWN"], no_operations: true } }),
+  c("audio_no_transcript", "audio", "生成中文字幕", [], undefined, { expected_status: ["partial"], risk: "medium", timeline: { ...promptQualityTimeline(), tracks: promptQualityTimeline().tracks.map((track) => track.id === "audio_main" && track.analysis ? { ...track, analysis: { ...track.analysis, transcriptSegments: [] } } : track) }, assertions: { warning_codes: ["TRANSCRIPTION_UNAVAILABLE"], no_operations: true } }),
+  c("audio_voice_clone_reject", "audio", "把声音克隆成另一个人", [], undefined, { expected_status: ["partial"], forbidden_operations: ["adjust_audio"], risk: "high" }),
+  c("audio_perfect_noise_reject", "audio", "完全去除所有噪声并保证没有失真", [], undefined, { expected_status: ["partial"], forbidden_operations: ["reduce_noise"], risk: "high" }),
+  c("audio_generate_music_reject", "audio", "根据画面自动生成一段音乐", [], undefined, { expected_status: ["partial"], risk: "high" }),
+  c("audio_locked_voice", "audio", "降低人声噪声", [], undefined, { expected_status: ["partial", "failed"], risk: "high", timeline: { ...promptQualityTimeline(), tracks: promptQualityTimeline().tracks.map((track) => track.id === "audio_main" ? { ...track, locked: true } : track) } }),
+  c("audio_shift_out_of_bounds", "audio", "声音比画面慢 5000ms，帮我对齐", [], undefined, { expected_status: ["partial", "failed"], risk: "high", forbidden_operations: ["shift_audio"] }),
+  c("audio_available_ops_limit", "audio", "人说话的时候把背景音乐压低", [], undefined, { expected_status: ["partial", "failed"], request_overrides: { available_operations: ["reduce_noise"] }, assertions: { warning_codes: ["NO_AVAILABLE_OPERATION"], no_operations: true } }),
+  c("audio_mute_long_confirm", "audio", "把 0 到 30 秒静音，画面保留", ["mute_range"], undefined, { risk: "high" }),
+  c("audio_duck_low_confidence", "audio", "背景音乐在人说话时小一点", ["duck_music"]),
+  c("audio_reduce_and_fade", "audio", "让人声更清楚，结尾淡出", ["reduce_noise", "apply_audio_fade"]),
+  c("audio_equalize_and_caption", "audio", "统一音量并生成中文字幕", ["equalize_loudness", "add_subtitle"]),
+  c("audio_sync_from_analysis", "audio", "声音比画面慢了一点，帮我对齐", ["shift_audio"], undefined, { assertions: { operations: [{ type: "shift_audio", params: { offset_ms: 180, affects_linked_video: false } }] } }),
+  c("audio_subtitle_sync_from_analysis", "audio", "字幕出现太晚，帮我对齐", ["shift_subtitle_timing"], undefined, { assertions: { operations: [{ type: "shift_subtitle_timing", params: { offset_ms: 180 } }] } }),
+  c("audio_reduce_eq_duck_fade", "audio", "把人声弄清楚，音量统一，配乐小一点，结尾淡出", ["reduce_noise", "equalize_loudness", "duck_music", "apply_audio_fade"]),
 ];
 
 export const buildPromptQualityRequest = (qualityCase: PromptQualityCase): LlmEditRequest => {
@@ -298,6 +382,19 @@ export const buildPromptQualityRequest = (qualityCase: PromptQualityCase): LlmEd
       ],
       clips,
       subtitles: clips.filter((clip) => clip.kind === "subtitle" && clip.text).map((clip) => ({ id: clip.id, start_ms: clip.startMs, end_ms: clip.endMs, text: clip.text ?? "" })),
+      audio: {
+        tracks: timeline.tracks.filter((track) => track.kind === "audio").map((track) => ({ track_id: track.id, kind: "audio", role: track.role ?? "unknown", locked: Boolean(track.locked), muted: Boolean(track.muted), clips: track.clips.map((clip) => clip.id) })),
+        analysis: {
+          loudness_lufs: timeline.tracks.find((track) => track.analysis)?.analysis?.loudnessLufs,
+          peak_dbfs: timeline.tracks.find((track) => track.analysis)?.analysis?.peakDbfs,
+          noise_floor_dbfs: timeline.tracks.find((track) => track.analysis)?.analysis?.noiseFloorDbfs,
+          speech_segments: (timeline.tracks.find((track) => track.analysis)?.analysis?.speechSegments ?? []).map((segment) => ({ start_ms: segment.startMs, end_ms: segment.endMs, confidence: segment.confidence })),
+          silence_segments: (timeline.tracks.find((track) => track.analysis)?.analysis?.silenceSegments ?? []).map((segment) => ({ start_ms: segment.startMs, end_ms: segment.endMs, confidence: segment.confidence })),
+          transcript_segments: (timeline.tracks.find((track) => track.analysis)?.analysis?.transcriptSegments ?? []).map((segment) => ({ start_ms: segment.startMs, end_ms: segment.endMs, text: segment.text, confidence: segment.confidence, source: segment.source })),
+          av_sync_offset_ms: timeline.tracks.find((track) => track.analysis)?.analysis?.avSyncOffsetMs,
+          analysis_source: timeline.tracks.find((track) => track.analysis)?.analysis?.analysisSource ?? "none",
+        },
+      },
       available_operations: qualityCase.request_overrides?.available_operations ?? AVAILABLE_OPERATIONS,
     },
     constraints: { max_operations: qualityCase.request_overrides?.max_operations ?? 50, require_user_confirmation: true, do_not_modify_source_files: true },

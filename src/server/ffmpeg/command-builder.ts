@@ -1,5 +1,6 @@
 import type { ExportPreset, MediaAsset, Timeline } from "@/types/editor";
 import { buildRenderPlan, type RenderPlan } from "@/server/ffmpeg/timeline-renderer";
+import { buildAudioFilterGraph } from "@/server/ffmpeg/audio-filter-builder";
 
 export type FfmpegCommand = {
   bin: string;
@@ -14,7 +15,8 @@ export const buildFfmpegCommand = (timeline: Timeline, preset: ExportPreset, out
   const renderPlan = buildRenderPlan(timeline, mediaAssets);
   if (renderPlan.segments.length === 0) throw new Error("时间线没有可导出的视频片段");
   const hasSubtitles = renderPlan.subtitles.length > 0;
-  const requiresReencode = hasSubtitles || renderPlan.hasVideoFilters || renderPlan.hasAudioFilters || preset !== "source" || renderPlan.segments.length > 1;
+  const audioGraph = buildAudioFilterGraph(timeline);
+  const requiresReencode = hasSubtitles || renderPlan.hasVideoFilters || renderPlan.hasAudioFilters || audioGraph.requiresReencode || preset !== "source" || renderPlan.segments.length > 1;
   const args = ["-y"];
 
   for (const segment of renderPlan.segments) {
@@ -38,11 +40,7 @@ export const buildFfmpegCommand = (timeline: Timeline, preset: ExportPreset, out
   }
   if (videoFilters.length > 0) args.push("-vf", videoFilters.join(","));
 
-  const audioFilters: string[] = [];
-  const audioClip = clips.find((clip) => clip.kind === "audio" && (clip.filters?.normalize || clip.volumeDb !== undefined || clip.muted));
-  if (audioClip?.muted) audioFilters.push("volume=0");
-  else if (audioClip?.volumeDb !== undefined) audioFilters.push(`volume=${audioClip.volumeDb}dB`);
-  if (audioClip?.filters?.normalize) audioFilters.push("loudnorm");
+  const audioFilters: string[] = [...audioGraph.filters];
   if (audioFilters.length > 0) args.push("-af", audioFilters.join(","));
 
   if (requiresReencode) {

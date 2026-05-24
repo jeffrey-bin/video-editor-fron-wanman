@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
-import { extractJson, generateCodexCliEditPlan, sanitizeEnv } from "@/server/llm/codex-cli-provider";
+import { buildCodexPrompt, extractJson, generateCodexCliEditPlan, sanitizeEnv } from "@/server/llm/codex-cli-provider";
 import type { LlmEditRequest } from "@/server/llm/edit-plan-protocol";
 
 const request: LlmEditRequest = {
@@ -64,6 +64,15 @@ const hangingSpawn = (calls: SpawnCall[] = [], onKill: () => void = () => undefi
 };
 
 describe("codex cli provider", () => {
+  it("builds a P4 audio constrained JSON-only prompt", () => {
+    const prompt = buildCodexPrompt(request);
+    expect(prompt).toContain("P4 音频 operation");
+    expect(prompt).toContain("analysis_source=none");
+    expect(prompt).toContain("不得声称完成真实音频分析");
+    expect(prompt).toContain("failed 必须 operations=[]");
+    expect(prompt).toContain("不得编造字幕文本");
+  });
+
   it("extracts JSON from plain and markdown-wrapped stdout", () => {
     expect(extractJson(validPlan)).toEqual(JSON.parse(validPlan));
     expect(extractJson(`text\n\`\`\`json\n${validPlan}\n\`\`\``)).toEqual(JSON.parse(validPlan));

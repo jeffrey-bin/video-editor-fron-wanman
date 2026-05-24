@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Captions, Download, Film, Headphones, Pause, Play, Redo2, Scissors, Send, Settings, Sparkles, Trash2, Undo2, Upload, Wand2, ZoomIn } from "lucide-react";
+import { Captions, Download, Headphones, Pause, Play, Redo2, Scissors, Send, Settings, SlidersHorizontal, Sparkles, Trash2, Undo2, Upload, Volume2, Wand2, ZoomIn } from "lucide-react";
 import type { EditPlanResponse } from "@/server/llm/edit-plan-protocol";
 import type { MediaAsset, Project, Timeline } from "@/types/editor";
 
@@ -31,7 +31,7 @@ const clipStyle = (start: number, end: number, duration: number) => ({
 export function EditorShell() {
   const [project, setProject] = useState<Project | null>(null);
   const [assets, setAssets] = useState<MediaAsset[]>([]);
-  const [prompt, setPrompt] = useState("剪掉开头 3 秒的空白，增强人声并让画面更明亮、肤色更自然，添加字幕并优化断句");
+  const [prompt, setPrompt] = useState("把人声弄清楚，背景音乐在人说话时小一点，结尾淡出");
   const [plan, setPlan] = useState<JobOutput | null>(null);
   const [running, setRunning] = useState(false);
   const [exportJob, setExportJob] = useState<{ job_id: string; progress: number; path?: string } | null>(null);
@@ -168,6 +168,12 @@ export function EditorShell() {
         </div>
       </div>
     ));
+  const audioOperations = plan?.plan.operations.filter((operation) => ["reduce_noise", "equalize_loudness", "duck_music", "mute_range", "apply_audio_fade", "shift_audio", "shift_subtitle_timing"].includes(operation.type)) ?? [];
+  const transcriptRows = [
+    { start: "00:00.000", text: "欢迎来到今天的演示", confidence: 0.98 },
+    { start: "00:04.120", text: "我们会演示音频编辑", confidence: 0.95 },
+    { start: "00:09.350", text: "自动降噪和智能闪避配乐", confidence: 0.72 },
+  ];
 
   return (
     <main className="app-shell">
@@ -190,12 +196,17 @@ export function EditorShell() {
       </header>
 
       <aside className="panel left-panel">
-        <div className="panel-header"><span>导入素材</span><Upload size={16} /></div>
-        <label className="import-card">
+        <div className="panel-header"><span>媒体库</span><button className="ghost-button small"><Upload size={14} />导入</button></div>
+        <label className="import-card compact">
           <input data-testid="file-input" type="file" accept="video/*,audio/*,.srt" onChange={(event) => handleImport(event.target.files?.[0])} />
           <span><Upload size={30} style={{ margin: "0 auto 8px" }} />拖拽文件到此处导入<br /><b>或点击浏览文件</b><br /><small>支持视频、音频、图片、字幕（SRT）</small></span>
         </label>
-        <div className="panel-header"><span>媒体库</span><Film size={16} /></div>
+        <div className="analysis-card">
+          <div className="metric"><b>-19.5</b><span>LUFS</span></div>
+          <div className="metric"><b>-2.1</b><span>Peak dBFS</span></div>
+          <div className="metric"><b>-48</b><span>Noise dBFS</span></div>
+          <div className="mock-source">analysis_source=mock</div>
+        </div>
         <div className="media-list">
           {assets.length === 0 ? <div className="muted">拖入视频、音频或字幕开始编辑</div> : null}
           {assets.map((asset) => (
@@ -203,15 +214,18 @@ export function EditorShell() {
               <div className="thumb" data-duration={ms(asset.durationMs).slice(3, 8)} />
               <div>
                 <div className="media-name">{asset.originalName}</div>
-                <div className="muted">{asset.kind} · {asset.width ?? "-"}x{asset.height ?? "-"} · {(asset.durationMs / 1000).toFixed(1)}s</div>
+                <div className="muted">{asset.kind} · {(asset.durationMs / 1000).toFixed(1)}s</div>
               </div>
             </div>
           ))}
         </div>
+        <div className="track-stack">
+          {["人声 Voice", "配乐 Music", "字幕 Subtitle", "AI 标记"].map((item) => <div key={item} className="track-chip"><Volume2 size={14} />{item}<span>S</span><span>M</span></div>)}
+        </div>
       </aside>
 
       <section className="panel preview-panel">
-        <div className="panel-header"><span>预览</span><span className="muted">适合</span></div>
+        <div className="panel-header"><span>预览</span><span className="muted">Local Codex CLI</span></div>
         <div className="preview-stage">
           <div className="safe-frame" />
           <div className="preview-caption">{caption}</div>
@@ -225,23 +239,30 @@ export function EditorShell() {
       </section>
 
       <section className="panel timeline-panel">
-        <div className="panel-header"><span>时间线</span><span className="muted">版本 {project?.timeline.version ?? 1}</span></div>
+        <div className="panel-header"><span>音频工作区</span><span className="muted">timeline v{project?.timeline.version ?? 1} · dry-run 通过</span></div>
         <div className="timeline-tools">
           <button className="icon-button"><Wand2 size={16} /></button>
           <button className="icon-button"><Trash2 size={16} /></button>
           <button className="icon-button"><ZoomIn size={16} /></button>
           <span className="muted">吸附开启 · 非破坏编辑</span>
         </div>
-        <div className="timeline-ruler"><span>00:00:00</span><span>00:00:05</span><span>00:00:10</span><span>00:00:15</span><span>00:00:20</span><span>00:00:25</span></div>
+        <div className="timeline-ruler"><span>00:00</span><span>00:10</span><span>00:20</span><span>00:30</span><span>00:40</span><span>00:50</span></div>
+        <div className="waveform-panel" data-testid="waveform-panel">
+          <div className="selection-range" />
+          <div className="wave voice">{Array.from({ length: 64 }, (_, index) => <span key={index} style={{ height: `${18 + ((index * 13) % 34)}px` }} />)}</div>
+          <svg className="envelope" viewBox="0 0 100 30" preserveAspectRatio="none"><polyline points="0,22 10,19 18,9 30,14 42,18 55,17 68,15 78,8 88,14 100,18" /></svg>
+          <div className="wave music">{Array.from({ length: 64 }, (_, index) => <span key={index} style={{ height: `${8 + ((index * 7) % 18)}px` }} />)}</div>
+          <div className="ducking-line" />
+        </div>
         <div className="tracks"><div className="playhead" />{project ? renderTracks(project.timeline) : null}</div>
       </section>
 
       <aside className="panel prompt-panel">
-        <div className="tabs"><button className="tab active">剪辑</button><button className="tab">修改 / 润色</button><button className="tab">历史</button><button className="tab">导出</button></div>
+        <div className="tabs"><button className="tab active">音频 Prompt</button><button className="tab">方案预览</button><button className="tab">审阅日志</button></div>
         <div className="prompt-body">
           <textarea className="prompt-input" value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="用自然语言描述你想要的编辑操作..." />
           <div className="chips">
-            {["剪掉开头 3 秒的空白", "增强人声并降低背景噪声", "让画面更明亮、肤色更自然", "添加字幕并优化断句"].map((item) => (
+            {["降低噪声并保留人声", "配乐在人声时压低", "结尾音乐慢慢淡出", "生成中文字幕并对齐"].map((item) => (
               <button key={item} className="chip" onClick={() => setPrompt(item)}>{item}</button>
             ))}
           </div>
@@ -249,32 +270,42 @@ export function EditorShell() {
         </div>
         <div className="section">
           <div className="llm-card">
-            <b>LLM 状态</b>
-            <span><span className="dot" />Local LLM Provider · {running ? "生成方案中" : "待生成方案"}</span>
+              <b>CLI 日志</b>
+              <span><span className="dot" />Local Codex CLI · {running ? "running" : plan ? "ready" : "idle"}</span>
             <div className="progress"><span style={{ width: running ? "72%" : "100%" }} /></div>
             <pre className="log">{`$ codex exec --model gpt-5.3-codex --json
 analyzing timeline...
 ${plan ? "review plan ready" : running ? "generating reviewable edit plan..." : "provider selected by LLM_PROVIDER"}`}</pre>
           </div>
         </div>
-        {error ? <div className="section"><div className="error-card">错误重试：{error}</div></div> : null}
+        {error ? <div className="section"><div className="error-card">LLM_PROCESS_FAILED：{error}<button className="ghost-button small">查看 Codex CLI 日志</button></div></div> : null}
+        {!plan ? <div className="section"><div className="warning-card"><b>AUDIO_ANALYSIS_REQUIRED</b><span>需要先分析音频或指定范围</span><div><button className="primary-button small">运行分析</button><button className="ghost-button small">重试</button></div></div></div> : null}
         {plan ? (
           <div className="section">
             <div className="result-card" data-testid="edit-plan">
-              <b><Sparkles size={16} /> 方案审阅</b>
+              <b><Sparkles size={16} /> 音频编辑方案</b>
               <span>{plan.plan.summary}</span>
               <span className="muted">置信度 {(plan.plan.confidence * 100).toFixed(0)}% · {plan.plan_state}</span>
-              <ul className="result-list">{plan.plan.operations.map((operation) => <li key={operation.id}>{operation.type}：{operation.rationale}</li>)}</ul>
-              <button data-testid="apply-plan" className="primary-button" onClick={applyPlan}>应用到时间线</button>
+              <div className="operation-list">{plan.plan.operations.map((operation, index) => <div className="operation-card" key={operation.id} data-testid="audio-operation-card"><div><span className="op-index">{index + 1}</span><b>{operation.type}</b></div><span>{operation.rationale}</span><span className="risk-chip">需试听确认</span><button className="ghost-button small"><Play size={14} />试听前后2秒</button></div>)}</div>
+              <button data-testid="apply-plan" className="primary-button" onClick={applyPlan}>全部应用</button>
             </div>
           </div>
         ) : null}
         <div className="section">
+          <div className="transcript-card" data-testid="transcript-panel">
+            <b><Captions size={16} /> 字幕与转写帮助</b>
+            <span className="muted">来自模拟转写 source=mock</span>
+            {transcriptRows.map((row) => <div className="transcript-row" key={row.start}><span>{row.start}</span><input value={row.text} readOnly /><em className={row.confidence < 0.85 ? "amber" : ""}>{row.confidence.toFixed(2)}</em></div>)}
+            <button className="ghost-button small">应用字幕草稿</button>
+          </div>
+        </div>
+        <div className="section">
           <div className="export-card" data-testid="export-card">
-            <b>导出队列</b>
-            <span>1080p MP4</span>
+            <b><SlidersHorizontal size={16} /> 音频导出</b>
+            <span>48kHz AAC · FFmpeg 音频滤镜</span>
             <div className="progress"><span style={{ width: `${exportJob?.progress ?? 0}%` }} /></div>
-            <span className="muted">{exportJob ? `已完成：${exportJob.path}` : "等待导出任务"}</span>
+            <span className="muted">{exportJob ? `已完成：${exportJob.path}` : `等待导出任务 · ${audioOperations.length} 个音频操作`}</span>
+            <div className="checks"><span>源文件未覆盖</span><span>dry-run 通过</span><span>timeline 已锁定校验</span></div>
           </div>
         </div>
       </aside>

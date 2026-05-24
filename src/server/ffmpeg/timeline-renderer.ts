@@ -59,7 +59,7 @@ export const buildRenderPlan = (timeline: Timeline, assets: MediaAsset[]): Rende
       track.clips.some((clip) => clip.kind === "video" && (clip.filters?.brightness || clip.filters?.contrast || clip.filters?.saturation)),
     ),
     hasAudioFilters: timeline.tracks.some((track) =>
-      track.clips.some((clip) => clip.kind === "audio" && (clip.filters?.normalize || clip.volumeDb !== undefined || clip.muted)),
+      track.clips.some((clip) => clip.kind === "audio" && (clip.filters?.normalize || clip.volumeDb !== undefined || clip.muted || (clip.audioEffects?.length ?? 0) > 0 || clip.audioOffsetMs)),
     ),
   };
 };

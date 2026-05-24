@@ -8,16 +8,16 @@ import { buildPromptQualityRequest, PROMPT_EDIT_QUALITY_CASES, promptQualityTime
 import { evaluatePromptQualityProvider, normalizePlan } from "@/server/llm/prompt-edit-quality-eval";
 
 describe("Prompt 编辑质量评测 harness", () => {
-  it("loads the 48-case P3 benchmark corpus with required category coverage", () => {
-    expect(PROMPT_EDIT_QUALITY_CASES).toHaveLength(48);
+  it("loads the P3+P4 benchmark corpus with required category coverage", () => {
+    expect(PROMPT_EDIT_QUALITY_CASES.length).toBeGreaterThanOrEqual(88);
     expect(new Set(PROMPT_EDIT_QUALITY_CASES.map((qualityCase) => qualityCase.category))).toEqual(
-      new Set(["single_cut", "polish", "subtitle", "multi_step", "conflict", "capability_boundary", "timeline_safety", "provider_consistency"]),
+      new Set(["single_cut", "polish", "subtitle", "multi_step", "conflict", "capability_boundary", "timeline_safety", "provider_consistency", "audio"]),
     );
   });
 
   it("validates mock provider plans through schema, operation whitelist and timeline dry-run", async () => {
     const result = await evaluatePromptQualityProvider("mock", generateMockEditPlan);
-    expect(result.total_cases).toBe(48);
+    expect(result.total_cases).toBe(PROMPT_EDIT_QUALITY_CASES.length);
     expect(result.failures).toEqual([]);
     expect(result.hard_failures).toBe(0);
     expect(result.average_score).toBeGreaterThanOrEqual(85);

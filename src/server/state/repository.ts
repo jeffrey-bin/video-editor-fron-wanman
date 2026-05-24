@@ -145,8 +145,8 @@ export const createDefaultProjectRecord = (): Project => ({
     history: [],
     tracks: [
       { id: "video_main", kind: "video", name: "视频 1", clips: [] },
-      { id: "audio_voice", kind: "audio", name: "音频 1", clips: [] },
-      { id: "music", kind: "audio", name: "音乐", clips: [] },
+      { id: "audio_voice", kind: "audio", name: "人声 Voice", role: "voice", clips: [] },
+      { id: "music", kind: "audio", name: "配乐 Music", role: "music", clips: [] },
       { id: "subtitles", kind: "subtitle", name: "字幕", clips: [] },
       { id: "ai_markers", kind: "ai", name: "AI 标记", clips: [] },
     ],

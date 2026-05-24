@@ -1,5 +1,6 @@
 import type { Clip, Project, Timeline, Track } from "@/types/editor";
 import type { EditOperation } from "@/server/editor/operation-schema";
+import { applyAudioEditOperation } from "@/server/editor/audio-timeline-ops";
 
 export type TimelineApplyResult = {
   timeline: Timeline;
@@ -203,6 +204,8 @@ export const applyEditOperations = (
           sourceStartMs: operation.params.start_ms,
           sourceEndMs: operation.params.end_ms,
           text: operation.params.text,
+          subtitleConfidence: operation.params.confidence,
+          subtitleSource: operation.params.source,
         });
         break;
       }
@@ -213,6 +216,8 @@ export const applyEditOperations = (
         found.clip.text = operation.params.text ?? found.clip.text;
         found.clip.startMs = operation.params.start_ms ?? found.clip.startMs;
         found.clip.endMs = operation.params.end_ms ?? found.clip.endMs;
+        found.clip.subtitleConfidence = operation.params.confidence ?? found.clip.subtitleConfidence;
+        found.clip.subtitleSource = operation.params.source ?? found.clip.subtitleSource;
         ensureInProjectRange(timeline, found.clip.startMs, found.clip.endMs);
         break;
       }
@@ -238,7 +243,7 @@ export const applyEditOperations = (
         warnings.push(`导出预设 ${operation.params.preset} 已记录，将在导出任务中使用`);
         break;
       default:
-        throw new Error("不支持的操作");
+        if (!applyAudioEditOperation(timeline, operation)) throw new Error("不支持的操作");
     }
     validateTimeline(timeline);
     appliedOperationIds.push(operation.id);
@@ -268,8 +273,41 @@ export const collectProjectContext = (project: Project) => {
     assetId: clip.assetId,
     text: clip.text,
   }));
+  const defaultSpeechEnd = Math.min(45000, project.timeline.durationMs);
+  const defaultTranscriptEnd = Math.min(4000, project.timeline.durationMs);
+  const audioTracks = project.timeline.tracks
+    .filter((track) => track.kind === "audio")
+    .map((track) => ({
+      track_id: track.id,
+      kind: "audio" as const,
+      role: track.role ?? (track.id.includes("music") ? "music" as const : track.id.includes("voice") || track.id.includes("audio") ? "voice" as const : "unknown" as const),
+      locked: Boolean(track.locked),
+      muted: Boolean(track.muted),
+      clips: track.clips.map((clip) => clip.id),
+    }));
+  const analysisTrack = project.timeline.tracks.find((track) => track.kind === "audio" && track.analysis)?.analysis;
   const subtitles = clips
     .filter((clip) => clip.kind === "subtitle" && clip.text)
     .map((clip) => ({ id: clip.id, start_ms: clip.startMs, end_ms: clip.endMs, text: clip.text ?? "" }));
-  return { clips, subtitles };
+  return {
+    clips,
+    subtitles,
+    audio: {
+      tracks: audioTracks,
+      analysis: {
+        loudness_lufs: analysisTrack?.loudnessLufs ?? -19.5,
+        peak_dbfs: analysisTrack?.peakDbfs ?? -2.1,
+        noise_floor_dbfs: analysisTrack?.noiseFloorDbfs ?? -48,
+        speech_segments: (analysisTrack?.speechSegments ?? [{ startMs: Math.min(10000, Math.max(0, defaultSpeechEnd - 1000)), endMs: defaultSpeechEnd, confidence: 0.9 }]).map((segment) => ({ start_ms: segment.startMs, end_ms: segment.endMs, confidence: segment.confidence })),
+        silence_segments: (analysisTrack?.silenceSegments ?? [{ startMs: 0, endMs: 900, confidence: 0.9 }]).map((segment) => ({ start_ms: segment.startMs, end_ms: segment.endMs, confidence: segment.confidence })),
+        transcript_segments: (analysisTrack?.transcriptSegments ?? [
+          { startMs: 0, endMs: defaultTranscriptEnd, text: "欢迎来到今天的演示", confidence: 0.98, source: "mock" as const },
+          { startMs: Math.min(4120, project.timeline.durationMs - 1), endMs: Math.min(8200, project.timeline.durationMs), text: "我们会演示音频编辑", confidence: 0.95, source: "mock" as const },
+          { startMs: Math.min(9350, project.timeline.durationMs - 1), endMs: Math.min(12600, project.timeline.durationMs), text: "自动降噪和智能闪避配乐", confidence: 0.72, source: "mock" as const },
+        ]).map((segment) => ({ start_ms: segment.startMs, end_ms: segment.endMs, text: segment.text, confidence: segment.confidence, source: segment.source })),
+        av_sync_offset_ms: analysisTrack?.avSyncOffsetMs ?? 180,
+        analysis_source: analysisTrack?.analysisSource ?? "mock",
+      },
+    },
+  };
 };

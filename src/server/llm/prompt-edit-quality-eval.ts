@@ -50,8 +50,8 @@ const matchesPartial = (actual: unknown, expected: unknown): boolean => {
 
 const operationWithinScope = (operation: EditPlanResponse["operations"][number], request: LlmEditRequest) => {
   const scope = request.user_intent.scope;
-  if (scope.type === "clip" && "clip_id" in operation.target) return scope.clip_ids.includes(operation.target.clip_id);
-  if (scope.type === "subtitle" && "subtitle_id" in operation.target && scope.subtitle_ids) return scope.subtitle_ids.includes(operation.target.subtitle_id);
+  if (scope.type === "clip" && "clip_id" in operation.target) return operation.target.clip_id ? scope.clip_ids.includes(operation.target.clip_id) : true;
+  if (scope.type === "subtitle" && "subtitle_id" in operation.target && scope.subtitle_ids) return operation.target.subtitle_id ? scope.subtitle_ids.includes(operation.target.subtitle_id) : true;
   if (scope.type === "selection") {
     if (operation.type === "delete_range") return operation.target.start_ms >= scope.start_ms && operation.target.end_ms <= scope.end_ms;
     if (operation.type === "add_subtitle") return operation.params.start_ms >= scope.start_ms && operation.params.end_ms <= scope.end_ms;

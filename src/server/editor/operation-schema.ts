@@ -4,6 +4,16 @@ const TimeRangeShape = {
   start_ms: z.number().int().nonnegative(),
   end_ms: z.number().int().positive(),
 };
+const OptionalAudioTargetSchema = z.object({
+  track_id: z.string().min(1).optional(),
+  clip_id: z.string().min(1).optional(),
+  start_ms: z.number().int().nonnegative().optional(),
+  end_ms: z.number().int().positive().optional(),
+});
+const SegmentSchema = z.object({
+  ...TimeRangeShape,
+  confidence: z.number().min(0).max(1).optional(),
+});
 
 const OperationBaseSchema = z.object({
   id: z.string().min(1),
@@ -19,6 +29,14 @@ export const OperationTypeSchema = z.enum([
   "update_subtitle",
   "adjust_video",
   "adjust_audio",
+  "reduce_noise",
+  "equalize_loudness",
+  "duck_music",
+  "mute_range",
+  "apply_audio_fade",
+  "shift_audio",
+  "shift_subtitle_timing",
+  "mark_review_range",
   "set_export_preset",
 ]);
 
@@ -61,6 +79,8 @@ const EditOperationUnionSchema = z.discriminatedUnion("type", [
       ...TimeRangeShape,
       text: z.string().min(1).max(500),
       locale: z.enum(["zh-CN", "ja-JP", "en-US"]).default("zh-CN"),
+      source: z.enum(["user", "mock_transcript", "fixture_transcript", "imported"]).optional(),
+      confidence: z.number().min(0).max(1).optional(),
     }),
   }),
   OperationBaseSchema.extend({
@@ -70,6 +90,8 @@ const EditOperationUnionSchema = z.discriminatedUnion("type", [
         start_ms: z.number().int().nonnegative().optional(),
         end_ms: z.number().int().positive().optional(),
         text: z.string().min(1).max(500).optional(),
+        source: z.enum(["user", "mock_transcript", "fixture_transcript", "imported"]).optional(),
+        confidence: z.number().min(0).max(1).optional(),
       }),
   }),
   OperationBaseSchema.extend({
@@ -91,6 +113,61 @@ const EditOperationUnionSchema = z.discriminatedUnion("type", [
       fade_out_ms: z.number().int().nonnegative().optional(),
       muted: z.boolean().optional(),
     }),
+  }),
+  OperationBaseSchema.extend({
+    type: z.literal("reduce_noise"),
+    target: OptionalAudioTargetSchema,
+    params: z.object({
+      strength: z.number().min(0).max(1),
+      noise_profile: z.enum(["auto", "hum", "wind", "room"]).default("auto"),
+      preserve_voice: z.boolean(),
+      target_noise_floor_dbfs: z.number().max(0).optional(),
+    }),
+  }),
+  OperationBaseSchema.extend({
+    type: z.literal("equalize_loudness"),
+    target: OptionalAudioTargetSchema,
+    params: z.object({
+      target_lufs: z.number().min(-24).max(-12),
+      max_gain_db: z.number().min(0).max(12),
+      limit_peak_dbfs: z.number().max(-1),
+      scope_mode: z.enum(["clip", "track", "selection"]),
+    }),
+  }),
+  OperationBaseSchema.extend({
+    type: z.literal("duck_music"),
+    target: z.object({ music_track_id: z.string().min(1), voice_track_id: z.string().min(1) }),
+    params: z.object({
+      duck_db: z.number().min(-24).max(0),
+      attack_ms: z.number().int().min(20).max(1000),
+      release_ms: z.number().int().min(100).max(3000),
+      segments: z.array(SegmentSchema).min(1),
+    }),
+  }),
+  OperationBaseSchema.extend({
+    type: z.literal("mute_range"),
+    target: z.object({ track_id: z.string().min(1).optional(), clip_id: z.string().min(1).optional(), ...TimeRangeShape }),
+    params: z.object({ ramp_ms: z.number().int().nonnegative(), preserve_video: z.literal(true) }),
+  }),
+  OperationBaseSchema.extend({
+    type: z.literal("apply_audio_fade"),
+    target: z.object({ track_id: z.string().min(1).optional(), clip_id: z.string().min(1) }),
+    params: z.object({ fade_type: z.enum(["in", "out"]), duration_ms: z.number().int().positive(), curve: z.enum(["linear", "equal_power"]) }),
+  }),
+  OperationBaseSchema.extend({
+    type: z.literal("shift_audio"),
+    target: z.object({ track_id: z.string().min(1).optional(), clip_id: z.string().min(1).optional() }),
+    params: z.object({ offset_ms: z.number().int().min(-3000).max(3000), fill_gap: z.enum(["silence", "trim", "preserve_gap"]), affects_linked_video: z.literal(false) }),
+  }),
+  OperationBaseSchema.extend({
+    type: z.literal("shift_subtitle_timing"),
+    target: z.object({ subtitle_ids: z.array(z.string().min(1)).optional(), track_id: z.string().min(1).optional() }),
+    params: z.object({ offset_ms: z.number().int().min(-3000).max(3000) }),
+  }),
+  OperationBaseSchema.extend({
+    type: z.literal("mark_review_range"),
+    target: z.object({ ...TimeRangeShape, track_id: z.string().min(1).optional() }),
+    params: z.object({ reason_code: z.string().min(1), suggested_action: z.string().min(1).max(500) }),
   }),
   OperationBaseSchema.extend({
     type: z.literal("set_export_preset"),
@@ -132,6 +209,12 @@ export const EditOperationSchema = EditOperationUnionSchema.superRefine((operati
     operation.params.start_ms >= operation.params.end_ms
   ) {
     addRangeIssue("start_ms must be before end_ms");
+  }
+  if ("target" in operation && "start_ms" in operation.target && "end_ms" in operation.target && operation.target.start_ms !== undefined && operation.target.end_ms !== undefined && operation.target.start_ms >= operation.target.end_ms) {
+    addRangeIssue("start_ms must be before end_ms");
+  }
+  if (operation.type === "duck_music" && operation.params.segments.some((segment) => segment.start_ms >= segment.end_ms)) {
+    addRangeIssue("segment start_ms must be before end_ms");
   }
 });
 

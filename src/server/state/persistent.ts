@@ -3,7 +3,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { applyEditOperations, collectProjectContext, dryRunEditPlan } from "@/server/editor/timeline-ops";
 import { AVAILABLE_OPERATIONS } from "@/server/editor/operation-schema";
-import { EditPlanResponseSchema, LlmEditRequestSchema, type EditPlanResponse } from "@/server/llm/edit-plan-protocol";
+import { EditPlanResponseSchema, LlmEditRequestSchema, validateEditPlanAgainstRequest, type EditPlanResponse } from "@/server/llm/edit-plan-protocol";
 import { CodexCliError } from "@/server/llm/codex-cli-provider";
 import { generateConfiguredEditPlan, LlmProviderError } from "@/server/llm/provider";
 import { buildFfmpegCommand } from "@/server/ffmpeg/command-builder";
@@ -89,6 +89,7 @@ export const addAssetToProject = async (projectId: string, file: { name: string;
     database.assets[project.id] = [...listAssetsFromDb(database, project.id), asset];
     const videoTrack = project.timeline.tracks.find((track) => track.id === "video_main");
     const voiceTrack = project.timeline.tracks.find((track) => track.id === "audio_voice");
+    const musicTrack = project.timeline.tracks.find((track) => track.id === "music");
     const targetTrack = isAudio ? voiceTrack : videoTrack;
     if (targetTrack) {
       targetTrack.clips.push({
@@ -101,6 +102,12 @@ export const addAssetToProject = async (projectId: string, file: { name: string;
         sourceStartMs: 0,
         sourceEndMs: asset.durationMs,
       });
+    }
+    if (!isAudio && voiceTrack && !voiceTrack.clips.some((clip) => clip.assetId === asset.id)) {
+      voiceTrack.clips.push({ id: `clip_audio_${asset.id}`, trackId: voiceTrack.id, assetId: asset.id, kind: "audio", startMs: 0, endMs: asset.durationMs, sourceStartMs: 0, sourceEndMs: asset.durationMs });
+    }
+    if (!isAudio && musicTrack && !musicTrack.clips.some((clip) => clip.id === `clip_music_${asset.id}`)) {
+      musicTrack.clips.push({ id: `clip_music_${asset.id}`, trackId: musicTrack.id, assetId: asset.id, kind: "audio", startMs: 0, endMs: asset.durationMs, sourceStartMs: 0, sourceEndMs: asset.durationMs, volumeDb: -12 });
     }
     project.timeline.durationMs = Math.max(project.timeline.durationMs, asset.durationMs);
     project.timeline.version += 1;
@@ -190,6 +197,16 @@ export const completeAssetUpload = async (assetId: string, input: { project_id: 
       project.timeline.version += 1;
       project.updatedAt = now();
     }
+    if (asset.kind === "video") {
+      const voiceTrack = project.timeline.tracks.find((item) => item.id === "audio_voice");
+      const musicTrack = project.timeline.tracks.find((item) => item.id === "music");
+      if (voiceTrack && !voiceTrack.clips.some((clip) => clip.assetId === asset.id)) {
+        voiceTrack.clips.push({ id: `clip_audio_${asset.id}`, trackId: voiceTrack.id, assetId: asset.id, kind: "audio", startMs: 0, endMs: asset.durationMs, sourceStartMs: 0, sourceEndMs: asset.durationMs });
+      }
+      if (musicTrack && !musicTrack.clips.some((clip) => clip.id === `clip_music_${asset.id}`)) {
+        musicTrack.clips.push({ id: `clip_music_${asset.id}`, trackId: musicTrack.id, assetId: asset.id, kind: "audio", startMs: 0, endMs: asset.durationMs, sourceStartMs: 0, sourceEndMs: asset.durationMs, volumeDb: -12 });
+      }
+    }
     const jobId = `asset_ingest_${asset.id}`;
     putJob(database, {
       id: jobId,
@@ -276,7 +293,8 @@ export const processPromptEditJob = async (jobId: string) => {
   });
   let plan: EditPlanResponse;
   try {
-    plan = EditPlanResponseSchema.parse(await generateConfiguredEditPlan(LlmEditRequestSchema.parse(input.request)));
+    const llmRequest = LlmEditRequestSchema.parse(input.request);
+    plan = validateEditPlanAgainstRequest(llmRequest, EditPlanResponseSchema.parse(await generateConfiguredEditPlan(llmRequest)));
   } catch (error) {
     const diagnostic = classifyJobError("llm_call", error);
     await mutateDatabase((db) => {

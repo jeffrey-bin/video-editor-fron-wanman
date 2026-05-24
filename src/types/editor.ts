@@ -1,6 +1,20 @@
 export type Locale = "zh-CN" | "ja-JP" | "en-US";
 
 export type MediaKind = "video" | "audio" | "subtitle";
+export type TrackRole = "voice" | "music" | "ambient" | "mixed" | "unknown";
+export type AnalysisSource = "mock" | "fixture" | "local_analyzer" | "none";
+export type TimeRange = { startMs: number; endMs: number; confidence?: number };
+export type TranscriptSegment = TimeRange & {
+  text: string;
+  confidence: number;
+  source: "mock" | "fixture" | "local_analyzer" | "imported" | "user";
+};
+export type AudioEffect =
+  | { id: string; type: "reduce_noise"; strength: number; preserveVoice: boolean; noiseProfile: "auto" | "hum" | "wind" | "room"; targetNoiseFloorDbfs?: number }
+  | { id: string; type: "equalize_loudness"; targetLufs: number; maxGainDb: number; limitPeakDbfs: number; scopeMode: "clip" | "track" | "selection" }
+  | { id: string; type: "duck_music"; voiceTrackId: string; duckDb: number; attackMs: number; releaseMs: number; segments: TimeRange[] }
+  | { id: string; type: "mute_range"; startMs: number; endMs: number; rampMs: number; preserveVideo: true }
+  | { id: string; type: "audio_fade"; fadeType: "in" | "out" | "cross"; durationMs: number; curve: "linear" | "equal_power" };
 
 export type MediaAsset = {
   id: string;
@@ -46,6 +60,11 @@ export type Clip = {
     saturation?: number;
     normalize?: boolean;
   };
+  audioEffects?: AudioEffect[];
+  audioOffsetMs?: number;
+  subtitleConfidence?: number;
+  subtitleSource?: "user" | "mock_transcript" | "fixture_transcript" | "imported";
+  reviewReasonCode?: string;
 };
 
 export type Track = {
@@ -55,6 +74,17 @@ export type Track = {
   locked?: boolean;
   muted?: boolean;
   hidden?: boolean;
+  role?: TrackRole;
+  analysis?: {
+    loudnessLufs?: number;
+    peakDbfs?: number;
+    noiseFloorDbfs?: number;
+    speechSegments?: TimeRange[];
+    silenceSegments?: TimeRange[];
+    transcriptSegments?: TranscriptSegment[];
+    avSyncOffsetMs?: number;
+    analysisSource: AnalysisSource;
+  };
   clips: Clip[];
 };
 
