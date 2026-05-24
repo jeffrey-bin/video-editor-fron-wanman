@@ -108,7 +108,7 @@ export const fadeTrend = (samples, sampleRate, fade) => {
     if (ok) monotonicWindows += 1;
     else reverseWindows += 1;
   }
-  return { direction: fade.direction, monotonicWindows, reverseWindows };
+  return { direction: fade.direction, monotonicWindows, reverseWindows, windowMs, startMs: fade.startMs, endMs: fade.endMs, values };
 };
 
 const frameRate = (value) => {

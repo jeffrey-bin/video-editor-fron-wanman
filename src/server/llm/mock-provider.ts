@@ -195,11 +195,13 @@ export const generateMockEditPlan = async (input: LlmEditRequest): Promise<EditP
     if (/淡入|淡出|不要突然断|结尾/.test(prompt)) {
       ensureAvailable("apply_audio_fade");
       if (audioClip) {
+        const seconds = prompt.match(/(\d+(?:\.\d+)?)\s*秒/);
+        const durationMs = seconds ? Math.round(Number(seconds[1]) * 1000) : 1200;
         operations.push({
           id: "op_audio_fade",
           type: "apply_audio_fade",
           target: { clip_id: audioClip.id, track_id: /配乐|音乐/.test(prompt) ? musicTrack?.track_id : voiceTrack?.track_id },
-          params: { fade_type: /淡入/.test(prompt) && !/淡出|结尾/.test(prompt) ? "in" : "out", duration_ms: 1200, curve: "equal_power" },
+          params: { fade_type: /淡入/.test(prompt) && !/淡出|结尾/.test(prompt) ? "in" : "out", duration_ms: durationMs, curve: "equal_power" },
           rationale: "对音频片段添加平滑淡入淡出，不作用于视频轨。",
         });
       }
