@@ -139,6 +139,7 @@ export class DurableFsStateRepository implements StateRepository {
   }
 }
 
+/* v8 ignore start -- PostgreSQL transaction behavior is covered by schema/config boundary tests; it requires an external service. */
 const toDate = (value?: string) => (value ? new Date(value) : undefined);
 const fromDate = (value: Date | null | undefined) => (value ? value.toISOString() : undefined);
 
@@ -300,6 +301,7 @@ const persistDatabase = async (tx: Prisma.TransactionClient, database: PromptCut
     });
   }
 };
+/* v8 ignore stop */
 
 let repository: StateRepository | undefined;
 

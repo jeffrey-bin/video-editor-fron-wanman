@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const sendMock = vi.fn(async () => ({}));
 const addMock = vi.fn(async () => undefined);
 const closeMock = vi.fn(async () => undefined);
+const workerMock = vi.fn();
 
 vi.mock("@aws-sdk/client-s3", () => ({
   S3Client: vi.fn(() => ({ send: sendMock })),
@@ -21,6 +22,10 @@ vi.mock("@aws-sdk/s3-request-presigner", () => ({
 
 vi.mock("bullmq", () => ({
   Queue: vi.fn(() => ({ add: addMock, close: closeMock })),
+  Worker: vi.fn((queueName, processor, options) => {
+    workerMock(queueName, processor, options);
+    return { queueName, close: vi.fn() };
+  }),
 }));
 
 let dir = "";
@@ -36,6 +41,7 @@ describe("external storage, S3 and queue boundaries", () => {
     sendMock.mockReset();
     addMock.mockClear();
     closeMock.mockClear();
+    workerMock.mockClear();
     vi.stubEnv("PROMPTCUT_RUNTIME_ROOT", dir);
     vi.stubEnv("PROMPTCUT_STATE_DRIVER", "durable_fs");
     vi.stubEnv("OBJECT_STORAGE_PROVIDER", "filesystem");
@@ -78,13 +84,20 @@ describe("external storage, S3 and queue boundaries", () => {
     vi.stubEnv("OBJECT_STORAGE_ENDPOINT", "https://r2.example");
     vi.stubEnv("OBJECT_STORAGE_ACCESS_KEY_ID", "key");
     vi.stubEnv("OBJECT_STORAGE_SECRET_ACCESS_KEY", "secret");
-    sendMock.mockResolvedValueOnce({ ContentLength: 5, Metadata: { sha256: "abc123" }, ContentType: "video/mp4" });
+    sendMock
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ Body: { transformToByteArray: async () => new Uint8Array([1, 2, 3]) } })
+      .mockResolvedValueOnce({ ContentLength: 5, Metadata: { sha256: "abc123" }, ContentType: "video/mp4" })
+      .mockResolvedValueOnce({});
     const { createObjectStore, S3CompatibleObjectStore } = await import("@/server/storage/object-store");
     const store = createObjectStore();
     expect(store).toBeInstanceOf(S3CompatibleObjectStore);
+    await expect(store.putObject("projects/p/assets/a/original/file.mp4", Buffer.from("hello"), { contentType: "video/mp4" })).resolves.toMatchObject({ sizeBytes: 5, contentType: "video/mp4" });
+    await expect(store.getObject("projects/p/assets/a/original/file.mp4")).resolves.toEqual(Buffer.from([1, 2, 3]));
     await expect(store.getSignedUploadUrl("projects/p/assets/a/original/file.mp4")).resolves.toMatchObject({ expiresInSeconds: 600 });
     await expect(store.getSignedDownloadUrl("projects/p/exports/e/out.mp4")).resolves.toMatchObject({ expiresInSeconds: 600 });
     await expect(store.statObject("projects/p/assets/a/original/file.mp4")).resolves.toMatchObject({ sizeBytes: 5, sha256: "abc123", contentType: "video/mp4" });
+    await expect(store.deleteObject("projects/p/assets/a/original/file.mp4")).resolves.toBeUndefined();
   });
 
   it("uses BullMQ enqueue for external driver instead of running web request work inline", async () => {
@@ -96,6 +109,18 @@ describe("external storage, S3 and queue boundaries", () => {
     expect(inline).not.toHaveBeenCalled();
     expect(addMock).toHaveBeenCalledWith("llm_edit_plan", { jobId: "job_1" }, expect.objectContaining({ jobId: "job_1", attempts: 3 }));
     expect(closeMock).toHaveBeenCalled();
+  });
+
+  it("creates external BullMQ workers with configured lease duration", async () => {
+    vi.stubEnv("PROMPTCUT_STATE_DRIVER", "external");
+    vi.stubEnv("DATABASE_URL", "postgresql://user:pass@db.example/promptcut");
+    vi.stubEnv("REDIS_URL", "redis://redis.example:6379");
+    vi.stubEnv("JOB_LEASE_SECONDS", "45");
+    const { createPromptCutWorkers } = await import("@/server/workers/promptcut-worker");
+    const workers = createPromptCutWorkers();
+    expect(workers).toHaveLength(4);
+    expect(workerMock).toHaveBeenCalledWith("llm_edit_plan", expect.any(Function), expect.objectContaining({ lockDuration: 45000 }));
+    expect(workerMock).toHaveBeenCalledWith("timeline_export", expect.any(Function), expect.objectContaining({ lockDuration: 45000 }));
   });
 
   it("repairs expired leases so another worker instance can retry or mark stalled", async () => {

@@ -10,7 +10,7 @@ import { buildFfmpegCommand } from "@/server/ffmpeg/command-builder";
 import { executeExport } from "@/server/ffmpeg/export-executor";
 import { assertProductionStorageIsConfigured, getStorageConfig } from "@/server/storage/config";
 import { buildObjectKey, createObjectStore, FilesystemObjectStore } from "@/server/storage/object-store";
-import { createDefaultProjectRecord, getStateRepository, type ExportFileRecord, type JobRecord, type PendingPlan, type PromptCutDatabase } from "@/server/state/repository";
+import { createDefaultProjectRecord, getStateRepository, type JobRecord, type PendingPlan, type PromptCutDatabase } from "@/server/state/repository";
 import { enqueuePromptCutJob } from "@/server/workers/queue";
 import type { ExportPreset, MediaAsset, Project } from "@/types/editor";
 
