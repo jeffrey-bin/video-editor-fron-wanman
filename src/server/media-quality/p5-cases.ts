@@ -2,6 +2,20 @@ import type { P5PromptCase } from "@/server/media-quality/p5-schemas";
 
 const a = (name: string, params: Record<string, unknown> = {}) => ({ name, params });
 
+const assertionsForOperation = (caseId: string, operation: string) => {
+  const base = [a("output_hash_changed")];
+  if (operation === "equalize_loudness") {
+    return [...base, a("audio_not_empty"), a("integrated_lufs", { target: -16, tolerance: 2.5 }), a("true_peak_dbfs_max", { max: -1 })];
+  }
+  if (operation === "adjust_audio") return [...base, a("audio_not_empty"), a("true_peak_dbfs_max", { max: -1 })];
+  if (operation === "mute_range") return [...base, a("audio_not_empty"), a("mute_segment_rms_max", { segment: "muted", max: -60 }), a("mute_boundaries_preserved")];
+  if (operation === "duck_music") return [...base, a("audio_not_empty"), a("duck_music_delta_db", { min: 1, max: 14 }), a("duck_release_recovers")];
+  if (operation === "apply_audio_fade") return [...base, a("audio_not_empty"), a("fade_trend", { max_reverse_windows: 1 }), a("fade_duration_ms", { target: caseId === "p5_audio_fade_002" ? 1000 : 1200, tolerance: 120 })];
+  if (operation === "reduce_noise") return [...base, a("audio_not_empty"), a("noise_floor_reduced_db", { min: 3, max: 18 }), a("speech_rms_preserved", { max_delta: 8 })];
+  if (operation === "adjust_video") return [...base, a("video_not_placeholder"), caseId.includes("color") ? a("video_saturation_increased") : a("video_brightened")];
+  return base;
+};
+
 export const P5_PROMPT_CASES: P5PromptCase[] = [
   {
     id: "p5_audio_loudness_001",
@@ -31,7 +45,7 @@ export const P5_PROMPT_CASES: P5PromptCase[] = [
     scope: { mode: "timeline" },
     expectedProviderStatus: "succeeded",
     expectedOperations: ["duck_music"],
-    assertions: [a("duck_music_delta_db", { target: 9, tolerance: 2 }), a("audio_not_empty")],
+    assertions: [a("output_hash_changed"), a("duck_music_delta_db", { min: 1, max: 14 }), a("duck_release_recovers"), a("audio_not_empty")],
   },
   {
     id: "p5_audio_fade_001",
@@ -41,7 +55,7 @@ export const P5_PROMPT_CASES: P5PromptCase[] = [
     scope: { mode: "timeline" },
     expectedProviderStatus: "succeeded",
     expectedOperations: ["apply_audio_fade"],
-    assertions: [a("fade_trend", { max_reverse_windows: 1 })],
+    assertions: [a("output_hash_changed"), a("audio_not_empty"), a("fade_trend", { max_reverse_windows: 1 }), a("fade_duration_ms", { target: 1200, tolerance: 120 })],
   },
   {
     id: "p5_video_brighten_001",
@@ -92,7 +106,11 @@ export const P5_PROMPT_CASES: P5PromptCase[] = [
     scope: { mode: "timeline" as const },
     expectedProviderStatus: "succeeded" as const,
     expectedOperations: [operation],
-    assertions: [a(operation === "adjust_video" ? "video_not_placeholder" : "audio_not_empty")],
+    assertions: [
+      ...assertionsForOperation(id, operation),
+      ...(id === "p5_av_combo_001" ? [a("fade_trend", { max_reverse_windows: 1 }), a("video_brightened")] : []),
+      ...(id === "p5_av_combo_002" ? [a("video_saturation_increased")] : []),
+    ],
   })),
 ];
 

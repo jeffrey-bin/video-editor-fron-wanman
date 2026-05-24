@@ -51,6 +51,7 @@ const partialPlan = (
   summary: string,
   warnings: EditPlanResponse["warnings"],
   unsupported_intents: EditPlanResponse["unsupported_intents"] = [],
+  operations: EditOperation[] = [],
 ): EditPlanResponse => ({
   request_id: input.request_id,
   status: "partial",
@@ -58,7 +59,7 @@ const partialPlan = (
   confidence: 0.54,
   requires_confirmation: true,
   warnings,
-  operations: [],
+  operations,
   unsupported_intents,
 });
 
@@ -156,7 +157,18 @@ export const generateMockEditPlan = async (input: LlmEditRequest): Promise<EditP
     if (/背景音乐|配乐|duck|压低|盖住|恢复/.test(prompt)) {
       ensureAvailable("duck_music");
       if (!voiceTrack || !musicTrack) {
-        return partialPlan(input, "已理解配乐闪避意图，但需要先选择人声轨和配乐轨。", [{ code: "TRACK_ROLE_UNKNOWN", message: "请选择 voice/music 轨道后重试。" }]);
+        const mixedTrack = audioTracks(input).find((track) => track.role === "mixed" || track.role === "unknown");
+        const range = selectedRange(input);
+        const reviewOperation: EditOperation[] = hasOperation(input, "mark_review_range") && mixedTrack
+          ? [{
+            id: "op_review_mixed_track_ducking",
+            type: "mark_review_range",
+            target: { track_id: "ai_markers", start_ms: range.start_ms, end_ms: range.end_ms },
+            params: { reason_code: "MEDIA_UNSUPPORTED_SEMANTIC", suggested_action: "混合音轨无法可靠分离人声和配乐，请拆分为 voice/music 轨后再执行 ducking。" },
+            rationale: "标记需要人工拆轨确认的混合音轨范围，避免伪造配乐闪避结果。",
+          }]
+          : [];
+        return partialPlan(input, "已理解配乐闪避意图，但需要先选择人声轨和配乐轨。", [{ code: "TRACK_ROLE_UNKNOWN", message: "请选择 voice/music 轨道后重试。" }], [], reviewOperation);
       }
       if (speechSegments.length === 0) {
         return partialPlan(input, "已理解配乐闪避意图，但需要先分析讲话段。", [{ code: "AUDIO_ANALYSIS_REQUIRED", message: "请运行音频分析获得 speech_segments。" }]);

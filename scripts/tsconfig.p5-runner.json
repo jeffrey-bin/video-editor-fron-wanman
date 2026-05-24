@@ -14,6 +14,7 @@
   },
   "include": [
     "../scripts/p5-real-media-runner.ts",
+    "../scripts/p5-media-lib.d.ts",
     "../src/server/editor/**/*.ts",
     "../src/server/ffmpeg/**/*.ts",
     "../src/server/llm/**/*.ts",
