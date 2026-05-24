@@ -59,6 +59,28 @@ export const readPcmMono = async (path, sampleRate = 48000) => {
   return { samples, sampleRate };
 };
 
+const measureLoudness = async (path) => {
+  try {
+    const { stderr } = await run(ffmpegBin(), [
+      "-hide_banner",
+      "-nostats",
+      "-i", resolve(repoRoot, path),
+      "-af", "loudnorm=I=-16:TP=-1:LRA=11:print_format=json",
+      "-f", "null",
+      "-",
+    ]);
+    const json = stderr.match(/\{[\s\S]*\}/)?.[0];
+    if (!json) return {};
+    const measured = JSON.parse(json);
+    return {
+      integratedLufs: Number(measured.input_i),
+      loudnormTruePeakDbfs: Number(measured.input_tp),
+    };
+  } catch {
+    return {};
+  }
+};
+
 const dbfs = (value) => (!Number.isFinite(value) || value <= 0 ? -120 : 20 * Math.log10(Math.min(1, value)));
 export const rmsDbfs = (samples) => {
   if (samples.length === 0) return -120;
@@ -77,11 +99,12 @@ export const segment = (samples, sampleRate, startMs, endMs) =>
 export const analyzeAudio = async (path, options = {}) => {
   const probe = await ffprobeJson(path);
   const { samples, sampleRate } = await readPcmMono(path);
+  const loudness = await measureLoudness(path);
   const segmentRms = {};
   for (const [name, range] of Object.entries(options.segments ?? {})) segmentRms[name] = rmsDbfs(segment(samples, sampleRate, range.startMs, range.endMs));
   const metrics = {
     durationMs: mediaDurationMs(probe),
-    integratedLufs: rmsDbfs(samples),
+    integratedLufs: Number.isFinite(loudness.integratedLufs) ? loudness.integratedLufs : rmsDbfs(samples),
     truePeakDbfs: peakDbfs(samples),
     rmsDbfs: rmsDbfs(samples),
     peakDbfs: peakDbfs(samples),

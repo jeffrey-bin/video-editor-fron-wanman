@@ -77,7 +77,7 @@ export const P5_PROMPT_CASES: P5PromptCase[] = [
     scope: { mode: "timeline" },
     expectedProviderStatus: "succeeded",
     expectedOperations: ["apply_audio_fade"],
-    assertions: [a("output_hash_changed"), a("audio_not_empty"), a("fade_trend", { max_reverse_windows: 1 }), a("fade_duration_ms", { target: 1200, tolerance: 120 }), a("fade_outside_300ms_delta_db", { max_delta: 2 })],
+    assertions: [a("output_hash_changed"), a("audio_not_empty"), a("fade_trend", { max_reverse_windows: 1 }), a("fade_duration_ms", { target: 2000, tolerance: 120 }), a("fade_outside_300ms_delta_db", { max_delta: 2 })],
   },
   {
     id: "p5_video_brighten_001",

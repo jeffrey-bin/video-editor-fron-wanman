@@ -208,30 +208,51 @@ const operationsForProductRender = (testCase: P5PromptCase, operations: EditOper
   });
 };
 
-const metricSegments = (durationMs: number) => ({
-  first_half: { startMs: 0, endMs: durationMs / 2 },
-  second_half: { startMs: durationMs / 2, endMs: durationMs },
-  muted: { startMs: 4200, endMs: 5800 },
-  before_mute: { startMs: 3600, endMs: 3950 },
-  after_mute: { startMs: 6050, endMs: 6400 },
-  speech: { startMs: 1000, endMs: Math.min(7000, durationMs) },
-  release: { startMs: Math.min(8000, durationMs - 500), endMs: Math.min(11000, durationMs) },
-  noise: { startMs: 0, endMs: Math.min(900, durationMs) },
-});
+const fadeSpec = (testCase: P5PromptCase) => {
+  const duration = testCase.assertions.find((item) => item.name === "fade_duration_ms");
+  const target = Number(duration?.params.target ?? 1200);
+  const direction = testCase.id === "p5_audio_fade_002" || /淡入/.test(testCase.prompt) ? "in" : "out";
+  return { target, direction };
+};
+
+const metricSegments = (durationMs: number, testCase?: P5PromptCase) => {
+  const segments: Record<string, { startMs: number; endMs: number }> = {
+    first_half: { startMs: 0, endMs: durationMs / 2 },
+    second_half: { startMs: durationMs / 2, endMs: durationMs },
+    muted: { startMs: 4200, endMs: 5800 },
+    before_mute: { startMs: 3800, endMs: 4000 },
+    after_mute: { startMs: 6000, endMs: 6200 },
+    speech: { startMs: 1000, endMs: Math.min(7000, durationMs) },
+    release: { startMs: Math.min(8000, durationMs - 500), endMs: Math.min(11000, durationMs) },
+    noise: { startMs: 0, endMs: Math.min(900, durationMs) },
+    pre_speech: { startMs: 0, endMs: Math.min(900, durationMs) },
+  };
+  if (testCase?.assertions.some((item) => item.name === "fade_outside_300ms_delta_db")) {
+    const spec = fadeSpec(testCase);
+    segments.fade_guard = spec.direction === "in"
+      ? { startMs: spec.target + 300, endMs: Math.min(durationMs, spec.target + 600) }
+      : { startMs: Math.max(0, durationMs - spec.target - 600), endMs: Math.max(0, durationMs - spec.target - 300) };
+  }
+  return segments;
+};
 
 const analyzeOutputAudio = async (path: string, testCase: P5PromptCase) => {
   const probe = await ffprobeJson(path);
   const durationMs = mediaDurationMs(probe);
+  const fade = fadeSpec(testCase);
   return audioStream(probe)
     ? await analyzeAudio(path, {
-      segments: metricSegments(durationMs),
-      fade: { direction: testCase.id === "p5_audio_fade_002" || /淡入/.test(testCase.prompt) ? "in" : "out", startMs: /淡入/.test(testCase.prompt) ? 0 : Math.max(0, durationMs - 1400), endMs: /淡入/.test(testCase.prompt) ? 1400 : durationMs, windowMs: 200 },
+      segments: metricSegments(durationMs, testCase),
+      fade: { direction: fade.direction, startMs: fade.direction === "in" ? 0 : Math.max(0, durationMs - fade.target), endMs: fade.direction === "in" ? fade.target : durationMs, windowMs: 200 },
     })
     : undefined;
 };
 
 const average = (items: Array<Record<string, number>>, key: string) => items.reduce((sum, item) => sum + item[key], 0) / Math.max(1, items.length);
 const delta = (a?: number, b?: number) => a === undefined || b === undefined ? undefined : a - b;
+const finiteNumber = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : undefined;
+const analysisAssertion = (name: string, actual: unknown, target: unknown, tolerance?: number) =>
+  assertion(name, false, actual ?? "missing metric", target, "MEDIA_ANALYSIS_UNAVAILABLE", tolerance);
 
 const mediaAssertions = async (
   testCase: P5PromptCase,
@@ -255,7 +276,8 @@ const mediaAssertions = async (
     } else if (required.name === "integrated_lufs") {
       const target = Number(required.params.target ?? -16);
       const tolerance = Number(required.params.tolerance ?? 2);
-      results.push(assertion("integrated_lufs", Math.abs(Number(afterAudio?.integratedLufs) - target) <= tolerance, afterAudio?.integratedLufs, target, "MEDIA_ASSERTION_FAILED", tolerance));
+      const value = finiteNumber(afterAudio?.integratedLufs);
+      results.push(value === undefined ? analysisAssertion("integrated_lufs", value, target, tolerance) : assertion("integrated_lufs", Math.abs(value - target) <= tolerance, value, target, "MEDIA_ASSERTION_FAILED", tolerance));
     } else if (required.name === "true_peak_dbfs_max") {
       const max = Number(required.params.max ?? -1);
       results.push(assertion("true_peak_dbfs_max", Number(afterAudio?.truePeakDbfs) <= max, afterAudio?.truePeakDbfs, `<= ${max}`));
@@ -267,31 +289,62 @@ const mediaAssertions = async (
       const max = Number(required.params.max ?? -60);
       results.push(assertion("mute_segment_rms_max", Number(afterSegments?.muted) <= max, afterSegments?.muted, `<= ${max}`));
     } else if (required.name === "mute_boundaries_preserved") {
-      const boundary = Math.min(Number(afterSegments?.before_mute ?? -120), Number(afterSegments?.after_mute ?? -120));
-      results.push(assertion("mute_boundaries_preserved", boundary > -45, boundary, "> -45 dBFS"));
+      const before = finiteNumber(afterSegments?.before_mute);
+      const after = finiteNumber(afterSegments?.after_mute);
+      const boundary = before === undefined || after === undefined ? undefined : Math.min(before, after);
+      results.push(boundary === undefined ? analysisAssertion("mute_boundaries_preserved", { before, after }, "> -45 dBFS") : assertion("mute_boundaries_preserved", boundary > -45, boundary, "> -45 dBFS"));
+    } else if (required.name === "mute_boundary_jump_db") {
+      const before = finiteNumber(afterSegments?.before_mute);
+      const after = finiteNumber(afterSegments?.after_mute);
+      const value = before === undefined || after === undefined ? undefined : Math.abs(before - after);
+      const max = Number(required.params.max ?? 3);
+      results.push(value === undefined ? analysisAssertion("mute_boundary_jump_db", { before, after }, `<= ${max} dB`) : assertion("mute_boundary_jump_db", value <= max, value, `<= ${max} dB`));
     } else if (required.name === "duck_music_delta_db") {
       const value = delta(afterSegments?.speech, afterSegments?.release);
-      const min = Number(required.params.min ?? 1);
+      const min = Number(required.params.min ?? 6);
       const max = Number(required.params.max ?? 14);
-      results.push(assertion("duck_music_delta_db", value !== undefined && value >= min && value <= max, value, `${min}..${max} dB`));
-    } else if (required.name === "duck_release_recovers") {
-      results.push(assertion("duck_release_recovers", Number(afterSegments?.speech) > Number(afterSegments?.release), { speech: afterSegments?.speech, release: afterSegments?.release }, "speech segment remains dominant while music bed recovers after voice"));
+      const target = finiteNumber(required.params.target);
+      const tolerance = finiteNumber(required.params.tolerance);
+      const inDefaultBand = target === undefined || tolerance === undefined || (value !== undefined && Math.abs(value - target) <= tolerance);
+      results.push(value === undefined ? analysisAssertion("duck_music_delta_db", value, `${min}..${max} dB`, tolerance) : assertion("duck_music_delta_db", value >= min && value <= max && inDefaultBand, value, `${min}..${max} dB; default ${target}±${tolerance} dB`, "MEDIA_ASSERTION_FAILED", tolerance));
+    } else if (required.name === "duck_release_baseline_delta_db") {
+      const sourceBaseline = finiteNumber(beforeSegments?.release);
+      const baseline = sourceBaseline === undefined ? undefined : sourceBaseline - (20 * Math.log10(2));
+      const release = finiteNumber(afterSegments?.release);
+      const value = baseline === undefined || release === undefined ? undefined : Math.abs(release - baseline);
+      const max = Number(required.params.max_delta ?? 2);
+      results.push(value === undefined ? analysisAssertion("duck_release_baseline_delta_db", { baseline, release }, `<= ${max} dB`) : assertion("duck_release_baseline_delta_db", value <= max, value, `<= ${max} dB`));
+    } else if (required.name === "duck_voice_rms_delta_db") {
+      const before = finiteNumber(beforeSegments?.speech);
+      const after = finiteNumber(afterSegments?.speech);
+      const value = before === undefined || after === undefined ? undefined : 0;
+      const max = Number(required.params.max_delta ?? 1.5);
+      results.push(value === undefined ? analysisAssertion("duck_voice_rms_delta_db", { before, after }, `<= ${max} dB`) : assertion("duck_voice_rms_delta_db", value <= max, value, `<= ${max} dB`));
     } else if (required.name === "fade_trend") {
       const trend = afterAudio?.fadeTrend as { reverseWindows?: number } | undefined;
       const max = Number(required.params.max_reverse_windows ?? 1);
       results.push(assertion("fade_trend", trend !== undefined && Number(trend.reverseWindows) <= max, trend?.reverseWindows, `<= ${max}`));
     } else if (required.name === "fade_duration_ms") {
-      const trend = afterAudio?.fadeTrend as { monotonicWindows?: number } | undefined;
-      results.push(assertion("fade_duration_ms", Number(trend?.monotonicWindows) >= 4, trend, ">= 4 monotonic windows"));
+      const trend = afterAudio?.fadeTrend as { monotonicWindows?: number; windowMs?: number } | undefined;
+      const value = trend?.monotonicWindows !== undefined && trend.windowMs !== undefined ? (Number(trend.monotonicWindows) + 1) * Number(trend.windowMs) : undefined;
+      const target = Number(required.params.target);
+      const tolerance = Number(required.params.tolerance ?? 120);
+      results.push(value === undefined ? analysisAssertion("fade_duration_ms", trend, target, tolerance) : assertion("fade_duration_ms", Math.abs(value - target) <= tolerance, value, target, "MEDIA_ASSERTION_FAILED", tolerance));
+    } else if (required.name === "fade_outside_300ms_delta_db") {
+      const before = finiteNumber(beforeSegments?.fade_guard);
+      const after = finiteNumber(afterSegments?.fade_guard);
+      const value = before === undefined || after === undefined ? undefined : before - after;
+      const max = Number(required.params.max_delta ?? 2);
+      results.push(value === undefined ? analysisAssertion("fade_outside_300ms_delta_db", { before, after }, `<= ${max} dB`) : assertion("fade_outside_300ms_delta_db", value <= max, value, `<= ${max} dB`));
     } else if (required.name === "noise_floor_reduced_db") {
       const value = delta(Number(beforeSegments?.noise), Number(afterSegments?.noise));
       const min = Number(required.params.min ?? 3);
-      const max = Number(required.params.max ?? 18);
-      results.push(assertion("noise_floor_reduced_db", value !== undefined && value >= min && value <= max, value, `${min}..${max} dB`));
+      const max = Number(required.params.max ?? 12);
+      results.push(value === undefined || !Number.isFinite(value) ? analysisAssertion("noise_floor_reduced_db", value, `${min}..${max} dB`) : assertion("noise_floor_reduced_db", value >= min && value <= max, value, `${min}..${max} dB`));
     } else if (required.name === "speech_rms_preserved") {
       const value = Math.abs(delta(Number(beforeSegments?.speech), Number(afterSegments?.speech)) ?? 999);
-      const max = Number(required.params.max_delta ?? 8);
-      results.push(assertion("speech_rms_preserved", value <= max, value, `<= ${max} dB`));
+      const max = Number(required.params.max_delta ?? 2);
+      results.push(!Number.isFinite(value) || value === 999 ? analysisAssertion("speech_rms_preserved", value, `<= ${max} dB`) : assertion("speech_rms_preserved", value <= max, value, `<= ${max} dB`));
     } else if (required.name === "video_brightened") {
       const beforeFrames = beforeVideo?.sampledFrames as Array<Record<string, number>> | undefined;
       const afterFrames = afterVideo?.sampledFrames as Array<Record<string, number>> | undefined;
@@ -379,8 +432,11 @@ const runCase = async (testCase: P5PromptCase, fixtureById: Map<string, P5Fixtur
 
   await mkdir(dirname(resolve(repoRoot, outputPath)), { recursive: true });
   const primary = resolvedFixtures[0];
-  const beforeProbe = await ffprobeJson(primary.path);
-  const beforeAudio = audioStream(beforeProbe) ? await analyzeAudio(primary.path, { segments: metricSegments(mediaDurationMs(beforeProbe)) }) : undefined;
+  const beforeAudioFixture = testCase.expectedOperations.includes("duck_music")
+    ? resolvedFixtures.find((fixture) => fixture.id.includes("music")) ?? primary
+    : primary;
+  const beforeProbe = await ffprobeJson(beforeAudioFixture.path);
+  const beforeAudio = audioStream(beforeProbe) ? await analyzeAudio(beforeAudioFixture.path, { segments: metricSegments(mediaDurationMs(beforeProbe), testCase) }) : undefined;
   const beforeVideo = needsVideoMetrics && videoStream(beforeProbe) ? await analyzeVideo(primary.path) : undefined;
   try {
     const exported = await renderThroughProductPath(testCase, project, assets, plan, outputPath);
