@@ -30,5 +30,9 @@ describe("stalled repair heartbeat", () => {
     await scheduler.recordStalledRepairFailed(60, new Error("redis down"));
     record = (await getStateRepository().load()).schedulerHeartbeats.stalled_repair;
     expect(record).toMatchObject({ status: "failed", lastErrorCode: "STALLED_REPAIR_FAILED", lastErrorMessage: "redis down" });
+    await scheduler.recordStalledRepairSkipped(60, "cleanup-worker-a");
+    record = (await getStateRepository().load()).schedulerHeartbeats.stalled_repair;
+    expect(record).toMatchObject({ status: "healthy", lastErrorCode: "STALLED_REPAIR_LOCK_HELD" });
+    expect(record.lastErrorMessage).toContain("promptcut:stalled-repair");
   });
 });

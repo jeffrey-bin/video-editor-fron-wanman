@@ -44,8 +44,12 @@ export const recordWorkerHeartbeat = async (
   };
   await getStateRepository().mutate((database) => {
     const previous = database.workerHeartbeats[record.runnerId];
+    const hasCurrentJob = Object.prototype.hasOwnProperty.call(input, "currentJobId");
+    const hasCurrentQueue = Object.prototype.hasOwnProperty.call(input, "currentQueue");
     database.workerHeartbeats[record.runnerId] = {
       ...record,
+      currentJobId: hasCurrentJob ? input.currentJobId : previous?.currentJobId,
+      currentQueue: hasCurrentQueue ? input.currentQueue : previous?.currentQueue,
       processedJobsTotal: input.processedJobsTotal ?? previous?.processedJobsTotal ?? 0,
       failedJobsTotal: input.failedJobsTotal ?? previous?.failedJobsTotal ?? 0,
       lastJobStartedAt: input.lastJobStartedAt ?? previous?.lastJobStartedAt,
@@ -75,10 +79,22 @@ export const refreshJobLease = async (jobId: string, queue: JobRecord["type"]) =
   return leaseExpiresAt;
 };
 
+let activeWorkerJob: { jobId: string; queue: JobRecord["type"] } | undefined;
+
+export const setActiveWorkerJob = (jobId: string, queue: JobRecord["type"]) => {
+  activeWorkerJob = { jobId, queue };
+};
+
+export const clearActiveWorkerJob = (jobId?: string) => {
+  if (!jobId || activeWorkerJob?.jobId === jobId) activeWorkerJob = undefined;
+};
+
 export const startWorkerHeartbeatLoop = (intervalMs?: number) => {
   const config = getStorageConfig();
   const timer = setInterval(() => {
-    recordWorkerHeartbeat().catch(() => undefined);
+    const active = activeWorkerJob;
+    const heartbeat = active ? recordWorkerHeartbeat({ currentJobId: active.jobId, currentQueue: active.queue }).then(() => refreshJobLease(active.jobId, active.queue)) : recordWorkerHeartbeat();
+    heartbeat.catch(() => undefined);
   }, intervalMs ?? Math.max(5000, Math.floor((config.jobLeaseSeconds * 1000) / 3)));
   timer.unref?.();
   return { stop: () => clearInterval(timer) };

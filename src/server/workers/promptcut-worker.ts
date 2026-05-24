@@ -2,8 +2,8 @@ import { Worker } from "bullmq";
 import { writeStructuredLog } from "@/server/observability/logger";
 import { getStorageConfig } from "@/server/storage/config";
 import { getJob, processQueuedJob, repairStalledJobs } from "@/server/state/persistent";
-import { recordWorkerHeartbeat, refreshJobLease, startWorkerHeartbeatLoop } from "@/server/workers/heartbeat";
-import { recordStalledRepairFailed, recordStalledRepairFinished, recordStalledRepairStarted } from "@/server/workers/scheduler-heartbeat";
+import { clearActiveWorkerJob, recordWorkerHeartbeat, refreshJobLease, setActiveWorkerJob, startWorkerHeartbeatLoop } from "@/server/workers/heartbeat";
+import { recordStalledRepairFailed, recordStalledRepairFinished, recordStalledRepairSkipped, recordStalledRepairStarted, withStalledRepairLock } from "@/server/workers/scheduler-heartbeat";
 import { enqueuePromptCutJob } from "@/server/workers/queue";
 import type { PromptCutQueueName } from "@/server/workers/queue";
 
@@ -12,20 +12,27 @@ const requeueableJobTypes = new Set<PromptCutQueueName>(["llm_edit_plan", "timel
 
 export const repairAndRequeueStalledJobs = async () => {
   const config = getStorageConfig();
-  const startedAt = Date.now();
-  await recordStalledRepairStarted(config.jobLeaseSeconds);
-  const repaired = await repairStalledJobs();
-  const requeued: string[] = [];
-  for (const jobId of repaired.repaired_job_ids) {
-    const job = await getJob(jobId);
-    if (!job || job.status !== "queued" || !requeueableJobTypes.has(job.type)) continue;
-    await enqueuePromptCutJob(job.type, job.id, () => processQueuedJob(job.id));
-    requeued.push(job.id);
-  }
-  const result = { ...repaired, requeued_job_ids: requeued, scanned_running_jobs: repaired.repaired_job_ids.length };
-  await recordStalledRepairFinished(startedAt, result);
-  writeStructuredLog("info", "stalled_repair_finished", { repaired_job_ids: repaired.repaired_job_ids, requeued_job_ids: requeued });
-  return result;
+  return withStalledRepairLock(config.jobLeaseSeconds, async (lock) => {
+    if (!lock.acquired) {
+      await recordStalledRepairSkipped(config.jobLeaseSeconds, lock.owner);
+      writeStructuredLog("info", "stalled_repair_lock_skipped", { lock_key: "promptcut:stalled-repair", owner: lock.owner });
+      return { repaired_job_ids: [], requeued_job_ids: [], scanned_running_jobs: 0, lock_acquired: false, lock_owner: lock.owner };
+    }
+    const startedAt = Date.now();
+    await recordStalledRepairStarted(config.jobLeaseSeconds);
+    const repaired = await repairStalledJobs();
+    const requeued: string[] = [];
+    for (const jobId of repaired.repaired_job_ids) {
+      const job = await getJob(jobId);
+      if (!job || job.status !== "queued" || !requeueableJobTypes.has(job.type)) continue;
+      await enqueuePromptCutJob(job.type, job.id, () => processQueuedJob(job.id));
+      requeued.push(job.id);
+    }
+    const result = { ...repaired, requeued_job_ids: requeued, scanned_running_jobs: repaired.repaired_job_ids.length, lock_acquired: true };
+    await recordStalledRepairFinished(startedAt, result);
+    writeStructuredLog("info", "stalled_repair_finished", { repaired_job_ids: repaired.repaired_job_ids, requeued_job_ids: requeued });
+    return result;
+  });
 };
 
 export const startStalledJobRepairLoop = (intervalMs?: number) => {
@@ -52,13 +59,16 @@ export const createPromptCutWorkers = () => {
         queueName,
         async (job) => {
           await recordWorkerHeartbeat({ currentJobId: String(job.data.jobId), currentQueue: queueName, lastJobStartedAt: new Date().toISOString() });
+          setActiveWorkerJob(String(job.data.jobId), queueName);
           await refreshJobLease(String(job.data.jobId), queueName);
           await repairAndRequeueStalledJobs();
           try {
             await processQueuedJob(String(job.data.jobId));
+            clearActiveWorkerJob(String(job.data.jobId));
             await recordWorkerHeartbeat({ currentJobId: undefined, currentQueue: undefined, lastJobFinishedAt: new Date().toISOString() });
             writeStructuredLog("info", "job_succeeded", { job_id: String(job.data.jobId), queue: queueName });
           } catch (error) {
+            clearActiveWorkerJob(String(job.data.jobId));
             await recordWorkerHeartbeat({ status: "healthy", currentJobId: undefined, currentQueue: undefined, lastJobFinishedAt: new Date().toISOString() });
             writeStructuredLog("error", "job_failed", { job_id: String(job.data.jobId), queue: queueName, error });
             throw error;

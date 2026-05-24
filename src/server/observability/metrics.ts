@@ -4,6 +4,7 @@ import { getStateRepository, type JobRecord } from "@/server/state/repository";
 import type { PromptCutQueueName } from "@/server/workers/queue";
 
 const queueNames: PromptCutQueueName[] = ["asset_ingest", "llm_edit_plan", "timeline_export", "cleanup"];
+const latencyBuckets = [1, 5, 10, 30, 60, 120, 300, 600, 1800];
 
 export type QueueMetric = {
   name: PromptCutQueueName;
@@ -27,6 +28,21 @@ const percentile95 = (values: number[]) => {
 };
 
 const countRecent = (jobs: JobRecord[], status: JobRecord["status"], sinceMs: number) => jobs.filter((job) => job.status === status && job.finishedAt && new Date(job.finishedAt).getTime() >= sinceMs).length;
+
+const labelValue = (value: string) => value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n");
+
+const pushHistogram = (lines: string[], name: string, labels: Record<string, string>, values: number[]) => {
+  const baseLabels = Object.entries(labels).map(([key, value]) => `${key}="${labelValue(value)}"`).join(",");
+  let cumulative = 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  for (const bucket of latencyBuckets) {
+    cumulative = sorted.filter((value) => value <= bucket).length;
+    lines.push(`${name}_bucket{${baseLabels},le="${bucket}"} ${cumulative}`);
+  }
+  lines.push(`${name}_bucket{${baseLabels},le="+Inf"} ${sorted.length}`);
+  lines.push(`${name}_sum{${baseLabels}} ${sorted.reduce((total, value) => total + value, 0)}`);
+  lines.push(`${name}_count{${baseLabels}} ${sorted.length}`);
+};
 
 export const collectQueueMetrics = async (): Promise<{ generated_at: string; queues: QueueMetric[] }> => {
   const config = getStorageConfig();
@@ -82,6 +98,8 @@ export const collectQueueMetrics = async (): Promise<{ generated_at: string; que
 export const renderPrometheusMetrics = async () => {
   const [queueMetrics, database] = await Promise.all([collectQueueMetrics(), getStateRepository().load()]);
   const lines: string[] = [];
+  const nowMs = Date.now();
+  const recent1h = nowMs - 60 * 60 * 1000;
   for (const queue of queueMetrics.queues) {
     lines.push(`promptcut_queue_waiting{queue="${queue.name}"} ${queue.waiting}`);
     lines.push(`promptcut_queue_active{queue="${queue.name}"} ${queue.active}`);
@@ -89,6 +107,43 @@ export const renderPrometheusMetrics = async () => {
     lines.push(`promptcut_queue_failed_total{queue="${queue.name}"} ${queue.failed_last_15m}`);
     lines.push(`promptcut_queue_oldest_waiting_age_seconds{queue="${queue.name}"} ${queue.oldest_waiting_age_seconds}`);
     lines.push(`promptcut_stalled_jobs_total{type="${queue.name}"} ${queue.stalled_db}`);
+    const jobs = Object.values(database.jobs).filter((job) => job.type === queue.name);
+    pushHistogram(
+      lines,
+      "promptcut_job_runtime_seconds",
+      { type: queue.name },
+      jobs.filter((job) => job.startedAt && job.finishedAt && new Date(job.finishedAt).getTime() >= recent1h).map((job) => Math.max(0, (new Date(job.finishedAt!).getTime() - new Date(job.startedAt!).getTime()) / 1000)),
+    );
+    pushHistogram(
+      lines,
+      "promptcut_job_queue_wait_seconds",
+      { type: queue.name },
+      jobs.filter((job) => job.startedAt && new Date(job.createdAt).getTime() >= recent1h).map((job) => Math.max(0, (new Date(job.startedAt!).getTime() - new Date(job.createdAt).getTime()) / 1000)),
+    );
+  }
+  const llmJobs = Object.values(database.jobs).filter((job) => job.type === "llm_edit_plan" && job.startedAt && job.finishedAt && new Date(job.finishedAt).getTime() >= recent1h);
+  const providerValues = new Map<string, number[]>();
+  for (const job of llmJobs) {
+    const input = job.input as { request_id?: string } | undefined;
+    const provider = (input?.request_id && database.pendingPlans[input.request_id]?.provider) || process.env.LLM_PROVIDER || "mock";
+    providerValues.set(provider, [...(providerValues.get(provider) ?? []), Math.max(0, (new Date(job.finishedAt!).getTime() - new Date(job.startedAt!).getTime()) / 1000)]);
+  }
+  if (providerValues.size === 0) providerValues.set(process.env.LLM_PROVIDER || "mock", []);
+  for (const [provider, values] of providerValues) {
+    pushHistogram(lines, "promptcut_llm_provider_latency_seconds", { provider }, values);
+  }
+  const ffmpegFailures = Object.values(database.diagnostics)
+    .flat()
+    .filter((event) => event.code === "FFMPEG_FAILED");
+  const ffmpegExitCounts = new Map<string, number>();
+  for (const event of ffmpegFailures) {
+    const match = event.message.match(/(?:exit|code)\s+(\d+)/i);
+    const exitCode = match?.[1] ?? "unknown";
+    ffmpegExitCounts.set(exitCode, (ffmpegExitCounts.get(exitCode) ?? 0) + 1);
+  }
+  if (ffmpegExitCounts.size === 0) ffmpegExitCounts.set("none", 0);
+  for (const [exitCode, count] of ffmpegExitCounts) {
+    lines.push(`promptcut_ffmpeg_exit_total{exit_code="${labelValue(exitCode)}"} ${count}`);
   }
   for (const type of queueNames) {
     for (const status of ["queued", "running", "succeeded", "failed", "stalled"]) {

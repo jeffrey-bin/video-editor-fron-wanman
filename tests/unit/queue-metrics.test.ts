@@ -49,6 +49,44 @@ describe("queue metrics", () => {
         startedAt: new Date(now - 40_000).toISOString(),
         finishedAt: new Date(now - 10_000).toISOString(),
       };
+      database.jobs.llm_1 = {
+        id: "llm_1",
+        projectId: "project_demo",
+        type: "llm_edit_plan",
+        status: "succeeded",
+        progress: 100,
+        input: { request_id: "request_1" },
+        attempts: 1,
+        maxAttempts: 1,
+        createdAt: new Date(now - 50_000).toISOString(),
+        updatedAt: new Date(now - 20_000).toISOString(),
+        startedAt: new Date(now - 35_000).toISOString(),
+        finishedAt: new Date(now - 20_000).toISOString(),
+      };
+      database.pendingPlans.request_1 = {
+        requestId: "request_1",
+        projectId: "project_demo",
+        timelineVersion: 1,
+        plan: { request_id: "00000000-0000-4000-8000-000000000001", status: "succeeded", summary: "ok", confidence: 0.9, requires_confirmation: true, warnings: [], operations: [], unsupported_intents: [] },
+        state: "ready",
+        provider: "codex-cli",
+        prompt: "cut intro",
+        createdAt: new Date(now - 20_000).toISOString(),
+        updatedAt: new Date(now - 20_000).toISOString(),
+      };
+      database.diagnostics.export_3 = [
+        {
+          id: "diag_1",
+          jobId: "export_3",
+          projectId: "project_demo",
+          type: "error",
+          phase: "render",
+          code: "FFMPEG_FAILED",
+          message: "ffmpeg exited with code 2",
+          retryable: true,
+          createdAt: new Date(now - 5000).toISOString(),
+        },
+      ];
       database.workerHeartbeats.worker_1 = {
         runnerId: "worker_1",
         role: "media-worker",
@@ -68,6 +106,11 @@ describe("queue metrics", () => {
     const exportQueue = metrics.queues.find((queue) => queue.name === "timeline_export");
     expect(exportQueue).toMatchObject({ waiting: 1, completed_last_15m: 1, p95_runtime_seconds_last_1h: 30, consumer_count: 1 });
     expect(exportQueue?.oldest_waiting_age_seconds).toBeGreaterThanOrEqual(100);
-    await expect(renderPrometheusMetrics()).resolves.toContain('promptcut_queue_waiting{queue="timeline_export"} 1');
+    const rendered = await renderPrometheusMetrics();
+    expect(rendered).toContain('promptcut_queue_waiting{queue="timeline_export"} 1');
+    expect(rendered).toContain('promptcut_job_runtime_seconds_bucket{type="timeline_export",le="30"} 1');
+    expect(rendered).toContain('promptcut_job_queue_wait_seconds_bucket{type="timeline_export",le="30"} 1');
+    expect(rendered).toContain('promptcut_llm_provider_latency_seconds_bucket{provider="codex-cli",le="30"} 1');
+    expect(rendered).toContain('promptcut_ffmpeg_exit_total{exit_code="2"} 1');
   });
 });

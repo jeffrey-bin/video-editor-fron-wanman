@@ -6,6 +6,32 @@ export type StalledRepairResult = {
   requeued_job_ids?: string[];
   marked_stalled_job_ids?: string[];
   scanned_running_jobs?: number;
+  lock_acquired?: boolean;
+  lock_owner?: string;
+};
+
+export type StalledRepairLock = { acquired: true; owner: string } | { acquired: false; owner?: string };
+
+const lockKey = "promptcut:stalled-repair";
+
+export const withStalledRepairLock = async <T>(ttlSeconds: number, run: (lock: StalledRepairLock) => Promise<T>): Promise<T> => {
+  const config = getStorageConfig();
+  const owner = `${config.runnerId}:${process.pid}:${Date.now()}`;
+  if (config.stateDriver !== "external" || !config.redisUrl) return run({ acquired: true, owner });
+  const Redis = (await import("ioredis")).default;
+  const redis = new Redis(config.redisUrl, { maxRetriesPerRequest: 0, lazyConnect: true });
+  try {
+    await redis.connect();
+    const acquired = await redis.set(lockKey, owner, "PX", Math.max(1000, ttlSeconds * 1000), "NX");
+    if (acquired !== "OK") return run({ acquired: false, owner: (await redis.get(lockKey)) ?? undefined });
+    try {
+      return await run({ acquired: true, owner });
+    } finally {
+      await redis.eval("if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end", 1, lockKey, owner);
+    }
+  } finally {
+    redis.disconnect();
+  }
 };
 
 export const recordStalledRepairStarted = async (intervalSeconds: number) => {
@@ -27,6 +53,31 @@ export const recordStalledRepairStarted = async (intervalSeconds: number) => {
       lastRepairedJobs: previous?.lastRepairedJobs ?? [],
       lastRequeuedJobs: previous?.lastRequeuedJobs ?? [],
       lastMarkedStalledJobs: previous?.lastMarkedStalledJobs ?? [],
+      updatedAt: now,
+    };
+  });
+};
+
+export const recordStalledRepairSkipped = async (intervalSeconds: number, lockOwner?: string) => {
+  const now = new Date().toISOString();
+  const config = getStorageConfig();
+  await getStateRepository().mutate((database) => {
+    const previous = database.schedulerHeartbeats.stalled_repair;
+    database.schedulerHeartbeats.stalled_repair = {
+      name: "stalled_repair",
+      runnerId: config.runnerId,
+      status: "healthy",
+      intervalSeconds,
+      lastHeartbeatAt: now,
+      lastRunStartedAt: previous?.lastRunStartedAt,
+      lastRunFinishedAt: previous?.lastRunFinishedAt,
+      lastRunDurationMs: previous?.lastRunDurationMs,
+      lastScannedRunningJobs: previous?.lastScannedRunningJobs ?? 0,
+      lastRepairedJobs: previous?.lastRepairedJobs ?? [],
+      lastRequeuedJobs: previous?.lastRequeuedJobs ?? [],
+      lastMarkedStalledJobs: previous?.lastMarkedStalledJobs ?? [],
+      lastErrorCode: "STALLED_REPAIR_LOCK_HELD",
+      lastErrorMessage: lockOwner ? `promptcut:stalled-repair held by ${lockOwner}` : "promptcut:stalled-repair lock not acquired",
       updatedAt: now,
     };
   });

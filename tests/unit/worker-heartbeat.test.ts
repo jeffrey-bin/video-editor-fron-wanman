@@ -17,12 +17,13 @@ describe("worker heartbeat", () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
     vi.unstubAllEnvs();
     resetStateRepositoryForTests();
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("records worker heartbeat and refreshes job lease", async () => {
+  const seedRunningJob = async () => {
     await getStateRepository().mutate((database) => {
       database.jobs.export_1 = {
         id: "export_1",
@@ -37,6 +38,10 @@ describe("worker heartbeat", () => {
         updatedAt: new Date().toISOString(),
       };
     });
+  };
+
+  it("records worker heartbeat and refreshes job lease", async () => {
+    await seedRunningJob();
     const { recordWorkerHeartbeat, refreshJobLease, listWorkerHeartbeats } = await import("@/server/workers/heartbeat");
     await recordWorkerHeartbeat({ currentJobId: "export_1", currentQueue: "timeline_export", processedJobsTotal: 3 });
     const lease = await refreshJobLease("export_1", "timeline_export");
@@ -46,6 +51,31 @@ describe("worker heartbeat", () => {
     expect(database.jobs.export_1.leaseExpiresAt).toBe(lease);
     const workers = await listWorkerHeartbeats(90);
     expect(workers.workers[0].status).toBe("healthy");
+  });
+
+  it("preserves active job context on periodic heartbeat and renews the lease", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-24T00:00:00.000Z"));
+    await seedRunningJob();
+    const { clearActiveWorkerJob, recordWorkerHeartbeat, setActiveWorkerJob, startWorkerHeartbeatLoop } = await import("@/server/workers/heartbeat");
+    await recordWorkerHeartbeat({ currentJobId: "export_1", currentQueue: "timeline_export" });
+    await recordWorkerHeartbeat();
+    expect((await getStateRepository().load()).workerHeartbeats["media-worker-test"]).toMatchObject({ currentJobId: "export_1", currentQueue: "timeline_export" });
+
+    setActiveWorkerJob("export_1", "timeline_export");
+    const loop = startWorkerHeartbeatLoop(1000);
+    vi.setSystemTime(new Date("2026-05-24T00:00:10.000Z"));
+    await vi.advanceTimersByTimeAsync(1000);
+    await Promise.resolve();
+    await Promise.resolve();
+    loop.stop();
+    clearActiveWorkerJob("export_1");
+
+    const database = await getStateRepository().load();
+    expect(database.jobs.export_1.leaseOwner).toBe("media-worker-test");
+    expect(new Date(database.jobs.export_1.leaseExpiresAt!).getTime()).toBeGreaterThan(new Date("2026-05-24T00:00:10.000Z").getTime());
+    expect(database.workerHeartbeats["media-worker-test"]).toMatchObject({ currentJobId: "export_1", currentQueue: "timeline_export" });
+    vi.useRealTimers();
   });
 
   it("marks stale workers and scheduler records in the health aggregate", async () => {

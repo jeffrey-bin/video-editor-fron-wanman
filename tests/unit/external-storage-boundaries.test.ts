@@ -8,6 +8,11 @@ const addMock = vi.fn(async () => undefined);
 const closeMock = vi.fn(async () => undefined);
 const workerMock = vi.fn();
 const workerProcessors = new Map<string, (job: { data: { jobId: string } }) => Promise<void>>();
+const redisSetMock = vi.fn(async () => "OK");
+const redisGetMock = vi.fn(async () => undefined as string | undefined);
+const redisEvalMock = vi.fn(async () => 1);
+const redisConnectMock = vi.fn(async () => undefined);
+const redisDisconnectMock = vi.fn();
 
 vi.mock("@aws-sdk/client-s3", () => ({
   S3Client: vi.fn(() => ({ send: sendMock })),
@@ -30,6 +35,16 @@ vi.mock("bullmq", () => ({
   }),
 }));
 
+vi.mock("ioredis", () => ({
+  default: vi.fn(() => ({
+    connect: redisConnectMock,
+    set: redisSetMock,
+    get: redisGetMock,
+    eval: redisEvalMock,
+    disconnect: redisDisconnectMock,
+  })),
+}));
+
 let dir = "";
 
 const loadPersistent = async () => {
@@ -45,6 +60,11 @@ describe("external storage, S3 and queue boundaries", () => {
     closeMock.mockClear();
     workerMock.mockClear();
     workerProcessors.clear();
+    redisSetMock.mockReset().mockResolvedValue("OK");
+    redisGetMock.mockReset().mockResolvedValue(undefined);
+    redisEvalMock.mockReset().mockResolvedValue(1);
+    redisConnectMock.mockClear();
+    redisDisconnectMock.mockClear();
     vi.stubEnv("PROMPTCUT_RUNTIME_ROOT", dir);
     vi.stubEnv("PROMPTCUT_STATE_DRIVER", "durable_fs");
     vi.stubEnv("OBJECT_STORAGE_PROVIDER", "filesystem");
@@ -62,6 +82,7 @@ describe("external storage, S3 and queue boundaries", () => {
 
   it("documents a real Prisma/PostgreSQL schema for the external repository", async () => {
     const schema = await readFile(join(process.cwd(), "prisma/schema.prisma"), "utf8");
+    const migration = await readFile(join(process.cwd(), "prisma/migrations/202605240001_observability_baseline/migration.sql"), "utf8");
     expect(schema).toContain('provider = "postgresql"');
     expect(schema).toContain("model ProjectRecord");
     expect(schema).toContain("model AssetRecord");
@@ -72,6 +93,9 @@ describe("external storage, S3 and queue boundaries", () => {
     expect(schema).toContain("model WorkerHeartbeatRecord");
     expect(schema).toContain("model SchedulerHeartbeatRecord");
     expect(schema).toContain("model JobDiagnosticEventRecord");
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS "WorkerHeartbeatRecord"');
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS "SchedulerHeartbeatRecord"');
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS "JobDiagnosticEventRecord"');
   });
 
   it("pins Prisma 6 generation so E2E does not drift to Prisma 7 config semantics", async () => {
@@ -193,5 +217,34 @@ describe("external storage, S3 and queue boundaries", () => {
     createPromptCutWorkers();
     await workerProcessors.get("timeline_export")?.({ data: { jobId: exportJob.job_id } });
     await expect(state.getJob(exportJob.job_id)).resolves.toMatchObject({ status: "succeeded", progress: 100 });
+  });
+
+  it("uses promptcut stalled repair distributed lock so only one scheduler instance requeues", async () => {
+    const state = await loadPersistent();
+    await state.resetPersistentStateForTests();
+    await state.addAssetToProject("project_demo", { name: "clip.mp4", type: "video/mp4", bytes: await readFile(join(process.cwd(), "tests/fixtures/minimal-real.mp4")) });
+    const exportJob = await state.createExportJob({ project_id: "project_demo", preset: "1080p_landscape", ignorePendingPlan: true });
+    const statePath = join(dir, "state", "promptcut-state.json");
+    const database = JSON.parse(await readFile(statePath, "utf8"));
+    database.jobs[exportJob.job_id].status = "running";
+    database.jobs[exportJob.job_id].progress = 40;
+    database.jobs[exportJob.job_id].attempts = 0;
+    database.jobs[exportJob.job_id].leaseOwner = "worker-a";
+    database.jobs[exportJob.job_id].leaseExpiresAt = new Date(Date.now() - 1000).toISOString();
+    await import("node:fs/promises").then((fs) => fs.writeFile(statePath, `${JSON.stringify(database, null, 2)}\n`));
+
+    redisSetMock.mockResolvedValueOnce("OK").mockResolvedValueOnce(undefined);
+    redisGetMock.mockResolvedValue("cleanup-worker-a");
+    vi.stubEnv("PROMPTCUT_STATE_DRIVER", "external");
+    vi.stubEnv("DATABASE_URL", "postgresql://user:pass@db.example/promptcut");
+    vi.stubEnv("REDIS_URL", "redis://redis.example:6379");
+    const { repairAndRequeueStalledJobs } = await import("@/server/workers/promptcut-worker");
+    const [first, second] = await Promise.all([repairAndRequeueStalledJobs(), repairAndRequeueStalledJobs()]);
+
+    expect([first.lock_acquired, second.lock_acquired].sort()).toEqual([false, true]);
+    expect(addMock).toHaveBeenCalledTimes(1);
+    expect(addMock).toHaveBeenCalledWith("timeline_export", { jobId: exportJob.job_id }, expect.objectContaining({ jobId: exportJob.job_id }));
+    expect(redisSetMock).toHaveBeenCalledWith("promptcut:stalled-repair", expect.any(String), "PX", expect.any(Number), "NX");
+    expect(redisEvalMock).toHaveBeenCalledTimes(1);
   });
 });
