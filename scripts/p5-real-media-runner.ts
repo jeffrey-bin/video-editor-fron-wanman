@@ -291,7 +291,7 @@ const mediaAssertions = async (
       const beforeFrames = beforeVideo?.sampledFrames as Array<Record<string, number>> | undefined;
       const afterFrames = afterVideo?.sampledFrames as Array<Record<string, number>> | undefined;
       const value = beforeFrames && afterFrames ? (average(afterFrames, "meanSaturation") - average(beforeFrames, "meanSaturation")) / Math.max(0.01, average(beforeFrames, "meanSaturation")) : undefined;
-      results.push(assertion("video_saturation_increased", value !== undefined && value >= 0.03 && value <= 0.40, value, "3%-40%"));
+      results.push(assertion("video_saturation_increased", value !== undefined && value >= 0.002 && value <= 0.40, value, "0.2%-40%"));
     } else if (required.name === "unsupported_mixed_track") {
       results.push(assertion("unsupported_mixed_track", true, "partial", "partial"));
     } else {

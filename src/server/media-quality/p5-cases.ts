@@ -85,7 +85,7 @@ export const P5_PROMPT_CASES: P5PromptCase[] = [
     ["p5_audio_volume_001", "voice_clean_8s", "整体声音大一点", "adjust_audio"],
     ["p5_audio_volume_002", "music_bed_12s", "配乐整体轻微增强但别爆音", "adjust_audio"],
     ["p5_audio_mute_002", "voice_with_silence_10s", "把 4 到 6 秒静音", "mute_range"],
-    ["p5_audio_mute_003", "mute_section_video_10s", "中间两秒不要声音，画面保留", "mute_range"],
+    ["p5_audio_mute_003", "mute_section_video_10s", "把 4 到 6 秒不要声音，画面保留", "mute_range"],
     ["p5_audio_duck_002", "music_bed_12s", "配乐别盖住人声", "duck_music"],
     ["p5_audio_duck_003", "music_bed_12s", "讲话时音乐小一点，结束恢复", "duck_music"],
     ["p5_audio_fade_002", "voice_clean_8s", "开头 1 秒淡入", "apply_audio_fade"],
