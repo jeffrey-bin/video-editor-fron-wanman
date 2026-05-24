@@ -11,6 +11,7 @@ export default [
     files: ["tests/fixtures/**/*.mjs"],
     languageOptions: {
       globals: {
+        Buffer: "readonly",
         console: "readonly",
         process: "readonly",
       },
