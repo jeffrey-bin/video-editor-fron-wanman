@@ -32,8 +32,7 @@ const filterForEffect = (effect: AudioEffect, clip: Clip, options: EffectTimeOpt
     case "reduce_noise": {
       const nr = Math.min(18, Math.max(4, Math.round(4 + effect.strength * 16)));
       const nf = effect.targetNoiseFloorDbfs ?? -48;
-      const attenuationDb = Math.min(8, Math.max(4, Math.round(4 + effect.strength * 6)));
-      return [`afftdn=nr=${nr}:nf=${nf}`, `volume=-${attenuationDb}dB`];
+      return [`afftdn=nr=${nr}:nf=${nf}`];
     }
     case "equalize_loudness":
       return [`loudnorm=I=${effect.targetLufs}:TP=${effect.limitPeakDbfs}:LRA=11`, `alimiter=limit=${limiterFromDbfs(effect.limitPeakDbfs)}`];
