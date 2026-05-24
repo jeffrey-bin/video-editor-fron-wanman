@@ -8,9 +8,9 @@
       "exportPreset": "1080p_landscape",
       "storageRoot": "projects/project_demo",
       "createdAt": "2026-05-24T14:37:17.159Z",
-      "updatedAt": "2026-05-24T14:37:17.744Z",
+      "updatedAt": "2026-05-24T14:47:18.021Z",
       "timeline": {
-        "version": 3,
+        "version": 4,
         "durationMs": 24200,
         "history": [
           {
@@ -36,6 +36,16 @@
                 "id": "clip_video_asset_fbc3fa99",
                 "trackId": "video_main",
                 "assetId": "asset_fbc3fa99",
+                "kind": "video",
+                "startMs": 0,
+                "endMs": 24200,
+                "sourceStartMs": 0,
+                "sourceEndMs": 24200
+              },
+              {
+                "id": "clip_video_asset_8e05fd93",
+                "trackId": "video_main",
+                "assetId": "asset_8e05fd93",
                 "kind": "video",
                 "startMs": 0,
                 "endMs": 24200,
@@ -87,6 +97,16 @@
                 "filters": {
                   "normalize": true
                 }
+              },
+              {
+                "id": "clip_audio_asset_8e05fd93",
+                "trackId": "audio_voice",
+                "assetId": "asset_8e05fd93",
+                "kind": "audio",
+                "startMs": 0,
+                "endMs": 24200,
+                "sourceStartMs": 0,
+                "sourceEndMs": 24200
               }
             ]
           },
@@ -123,6 +143,17 @@
                     ]
                   }
                 ]
+              },
+              {
+                "id": "clip_music_asset_8e05fd93",
+                "trackId": "music",
+                "assetId": "asset_8e05fd93",
+                "kind": "audio",
+                "startMs": 0,
+                "endMs": 24200,
+                "sourceStartMs": 0,
+                "sourceEndMs": 24200,
+                "volumeDb": -12
               }
             ]
           },
@@ -159,6 +190,23 @@
         "height": 1080,
         "fps": 24,
         "filePath": ".promptcut-e2e-runtime/objects/projects/project_demo/assets/asset_fbc3fa99/original/d61f476d57744d77cbb0f9ceba4df14065fc6d8b3377e2780c614b5a76017747.mp4",
+        "thumbnailUrl": "gradient"
+      },
+      {
+        "id": "asset_8e05fd93",
+        "projectId": "project_demo",
+        "kind": "video",
+        "originalName": "podcast-demo.mp4",
+        "mimeType": "video/mp4",
+        "sizeBytes": 20650,
+        "sha256": "d61f476d57744d77cbb0f9ceba4df14065fc6d8b3377e2780c614b5a76017747",
+        "originalKey": "projects/project_demo/assets/asset_8e05fd93/original/d61f476d57744d77cbb0f9ceba4df14065fc6d8b3377e2780c614b5a76017747.mp4",
+        "probeStatus": "succeeded",
+        "durationMs": 24200,
+        "width": 1920,
+        "height": 1080,
+        "fps": 24,
+        "filePath": ".promptcut-e2e-runtime/objects/projects/project_demo/assets/asset_8e05fd93/original/d61f476d57744d77cbb0f9ceba4df14065fc6d8b3377e2780c614b5a76017747.mp4",
         "thumbnailUrl": "gradient"
       }
     ]
@@ -689,6 +737,324 @@
         "expires_at": "2026-05-31T14:37:17.930Z"
       },
       "finishedAt": "2026-05-24T14:37:17.933Z"
+    },
+    "asset_ingest_asset_8e05fd93": {
+      "id": "asset_ingest_asset_8e05fd93",
+      "projectId": "project_demo",
+      "type": "asset_ingest",
+      "status": "succeeded",
+      "progress": 100,
+      "input": {
+        "project_id": "project_demo",
+        "object_key": "projects/project_demo/assets/asset_8e05fd93/original/d61f476d57744d77cbb0f9ceba4df14065fc6d8b3377e2780c614b5a76017747.mp4"
+      },
+      "output": {
+        "asset_id": "asset_8e05fd93",
+        "object_key": "projects/project_demo/assets/asset_8e05fd93/original/d61f476d57744d77cbb0f9ceba4df14065fc6d8b3377e2780c614b5a76017747.mp4",
+        "size_bytes": 20650,
+        "sha256": "d61f476d57744d77cbb0f9ceba4df14065fc6d8b3377e2780c614b5a76017747"
+      },
+      "attempts": 1,
+      "maxAttempts": 1,
+      "createdAt": "2026-05-24T14:47:18.021Z",
+      "updatedAt": "2026-05-24T14:47:18.021Z",
+      "startedAt": "2026-05-24T14:47:18.021Z",
+      "finishedAt": "2026-05-24T14:47:18.021Z"
+    },
+    "job_d4737859": {
+      "id": "job_d4737859",
+      "projectId": "project_demo",
+      "type": "llm_edit_plan",
+      "status": "succeeded",
+      "progress": 100,
+      "input": {
+        "project_id": "project_demo",
+        "timeline_version": 4,
+        "prompt": "把人声弄清楚，背景音乐在人说话时小一点，结尾淡出",
+        "locale": "zh-CN",
+        "scope": {
+          "type": "timeline",
+          "start_ms": 0,
+          "end_ms": 24200
+        },
+        "request_id": "c6041ab2-d539-4b9a-962f-dc62f87a9ec4",
+        "request": {
+          "request_id": "c6041ab2-d539-4b9a-962f-dc62f87a9ec4",
+          "project": {
+            "project_id": "project_demo",
+            "duration_ms": 24200,
+            "timeline_version": 4
+          },
+          "user_intent": {
+            "prompt": "把人声弄清楚，背景音乐在人说话时小一点，结尾淡出",
+            "locale": "zh-CN",
+            "scope": {
+              "type": "timeline",
+              "start_ms": 0,
+              "end_ms": 24200
+            }
+          },
+          "context": {
+            "assets": [
+              {
+                "id": "asset_fbc3fa99",
+                "kind": "video",
+                "originalName": "podcast-demo.mp4",
+                "durationMs": 24200,
+                "width": 1920,
+                "height": 1080,
+                "fps": 24
+              },
+              {
+                "id": "asset_8e05fd93",
+                "kind": "video",
+                "originalName": "podcast-demo.mp4",
+                "durationMs": 24200,
+                "width": 1920,
+                "height": 1080,
+                "fps": 24
+              }
+            ],
+            "clips": [
+              {
+                "id": "clip_video_asset_fbc3fa99",
+                "trackId": "video_main",
+                "kind": "video",
+                "startMs": 0,
+                "endMs": 24200,
+                "assetId": "asset_fbc3fa99"
+              },
+              {
+                "id": "clip_video_asset_8e05fd93",
+                "trackId": "video_main",
+                "kind": "video",
+                "startMs": 0,
+                "endMs": 24200,
+                "assetId": "asset_8e05fd93"
+              },
+              {
+                "id": "clip_audio_asset_fbc3fa99",
+                "trackId": "audio_voice",
+                "kind": "audio",
+                "startMs": 0,
+                "endMs": 24200,
+                "assetId": "asset_fbc3fa99"
+              },
+              {
+                "id": "clip_audio_asset_8e05fd93",
+                "trackId": "audio_voice",
+                "kind": "audio",
+                "startMs": 0,
+                "endMs": 24200,
+                "assetId": "asset_8e05fd93"
+              },
+              {
+                "id": "clip_music_asset_fbc3fa99",
+                "trackId": "music",
+                "kind": "audio",
+                "startMs": 0,
+                "endMs": 24200,
+                "assetId": "asset_fbc3fa99"
+              },
+              {
+                "id": "clip_music_asset_8e05fd93",
+                "trackId": "music",
+                "kind": "audio",
+                "startMs": 0,
+                "endMs": 24200,
+                "assetId": "asset_8e05fd93"
+              }
+            ],
+            "subtitles": [],
+            "available_operations": [
+              "trim_clip",
+              "delete_range",
+              "move_clip",
+              "split_clip",
+              "add_subtitle",
+              "update_subtitle",
+              "adjust_video",
+              "adjust_audio",
+              "reduce_noise",
+              "equalize_loudness",
+              "duck_music",
+              "mute_range",
+              "apply_audio_fade",
+              "shift_audio",
+              "shift_subtitle_timing",
+              "mark_review_range",
+              "set_export_preset"
+            ],
+            "audio": {
+              "tracks": [
+                {
+                  "track_id": "audio_voice",
+                  "kind": "audio",
+                  "role": "voice",
+                  "locked": false,
+                  "muted": false,
+                  "clips": [
+                    "clip_audio_asset_fbc3fa99",
+                    "clip_audio_asset_8e05fd93"
+                  ]
+                },
+                {
+                  "track_id": "music",
+                  "kind": "audio",
+                  "role": "music",
+                  "locked": false,
+                  "muted": false,
+                  "clips": [
+                    "clip_music_asset_fbc3fa99",
+                    "clip_music_asset_8e05fd93"
+                  ]
+                }
+              ],
+              "analysis": {
+                "loudness_lufs": -19.5,
+                "peak_dbfs": -2.1,
+                "noise_floor_dbfs": -48,
+                "speech_segments": [
+                  {
+                    "start_ms": 10000,
+                    "end_ms": 24200,
+                    "confidence": 0.9
+                  }
+                ],
+                "silence_segments": [
+                  {
+                    "start_ms": 0,
+                    "end_ms": 900,
+                    "confidence": 0.9
+                  }
+                ],
+                "transcript_segments": [
+                  {
+                    "start_ms": 0,
+                    "end_ms": 4000,
+                    "confidence": 0.98,
+                    "text": "欢迎来到今天的演示",
+                    "source": "mock"
+                  },
+                  {
+                    "start_ms": 4120,
+                    "end_ms": 8200,
+                    "confidence": 0.95,
+                    "text": "我们会演示音频编辑",
+                    "source": "mock"
+                  },
+                  {
+                    "start_ms": 9350,
+                    "end_ms": 12600,
+                    "confidence": 0.72,
+                    "text": "自动降噪和智能闪避配乐",
+                    "source": "mock"
+                  }
+                ],
+                "av_sync_offset_ms": 180,
+                "analysis_source": "mock"
+              }
+            }
+          },
+          "constraints": {
+            "max_operations": 50,
+            "require_user_confirmation": true,
+            "do_not_modify_source_files": true
+          }
+        }
+      },
+      "attempts": 1,
+      "maxAttempts": 1,
+      "createdAt": "2026-05-24T14:47:18.132Z",
+      "updatedAt": "2026-05-24T14:47:18.142Z",
+      "leaseOwner": "local-3865",
+      "leaseExpiresAt": "2026-05-24T14:48:18.137Z",
+      "startedAt": "2026-05-24T14:47:18.137Z",
+      "output": {
+        "request_id": "c6041ab2-d539-4b9a-962f-dc62f87a9ec4",
+        "plan": {
+          "request_id": "c6041ab2-d539-4b9a-962f-dc62f87a9ec4",
+          "status": "succeeded",
+          "summary": "已生成 4 个可审阅操作：剪辑、字幕、音频滤镜或基础润色参数。",
+          "confidence": 0.82,
+          "requires_confirmation": true,
+          "warnings": [
+            {
+              "code": "MOCK_TIMING",
+              "message": "时间点来自本地模拟，请预览后确认。"
+            }
+          ],
+          "operations": [
+            {
+              "id": "op_reduce_noise",
+              "rationale": "降低稳定背景噪声并保留人声可懂度。",
+              "type": "reduce_noise",
+              "target": {
+                "track_id": "audio_voice",
+                "clip_id": "clip_audio_asset_fbc3fa99"
+              },
+              "params": {
+                "strength": 0.45,
+                "noise_profile": "auto",
+                "preserve_voice": true,
+                "target_noise_floor_dbfs": -50
+              }
+            },
+            {
+              "id": "op_duck_music",
+              "rationale": "在人声出现时压低配乐，讲话结束后平滑恢复。",
+              "type": "duck_music",
+              "target": {
+                "music_track_id": "music",
+                "voice_track_id": "audio_voice"
+              },
+              "params": {
+                "duck_db": -9,
+                "attack_ms": 120,
+                "release_ms": 650,
+                "segments": [
+                  {
+                    "start_ms": 10000,
+                    "end_ms": 24200,
+                    "confidence": 0.9
+                  }
+                ]
+              }
+            },
+            {
+              "id": "op_audio_fade",
+              "rationale": "对音频片段添加平滑淡入淡出，不作用于视频轨。",
+              "type": "apply_audio_fade",
+              "target": {
+                "track_id": "music",
+                "clip_id": "clip_audio_asset_fbc3fa99"
+              },
+              "params": {
+                "fade_type": "out",
+                "duration_ms": 1200,
+                "curve": "equal_power"
+              }
+            },
+            {
+              "id": "op_audio_enhance",
+              "rationale": "根据 Prompt 调整音频响度、静音或淡入淡出。",
+              "type": "adjust_audio",
+              "target": {
+                "clip_id": "clip_audio_asset_fbc3fa99"
+              },
+              "params": {
+                "volume_db": 2,
+                "normalize": true,
+                "fade_out_ms": 1000
+              }
+            }
+          ],
+          "unsupported_intents": []
+        },
+        "timeline_version": 4,
+        "plan_state": "invalid"
+      },
+      "finishedAt": "2026-05-24T14:47:18.142Z"
     }
   },
   "pendingPlans": {
@@ -782,6 +1148,96 @@
       "updatedAt": "2026-05-24T14:37:17.595Z",
       "expiresAt": "2026-06-23T14:37:17.442Z",
       "appliedAt": "2026-05-24T14:37:17.595Z"
+    },
+    "c6041ab2-d539-4b9a-962f-dc62f87a9ec4": {
+      "requestId": "c6041ab2-d539-4b9a-962f-dc62f87a9ec4",
+      "projectId": "project_demo",
+      "timelineVersion": 4,
+      "plan": {
+        "request_id": "c6041ab2-d539-4b9a-962f-dc62f87a9ec4",
+        "status": "succeeded",
+        "summary": "已生成 4 个可审阅操作：剪辑、字幕、音频滤镜或基础润色参数。",
+        "confidence": 0.82,
+        "requires_confirmation": true,
+        "warnings": [
+          {
+            "code": "MOCK_TIMING",
+            "message": "时间点来自本地模拟，请预览后确认。"
+          }
+        ],
+        "operations": [
+          {
+            "id": "op_reduce_noise",
+            "rationale": "降低稳定背景噪声并保留人声可懂度。",
+            "type": "reduce_noise",
+            "target": {
+              "track_id": "audio_voice",
+              "clip_id": "clip_audio_asset_fbc3fa99"
+            },
+            "params": {
+              "strength": 0.45,
+              "noise_profile": "auto",
+              "preserve_voice": true,
+              "target_noise_floor_dbfs": -50
+            }
+          },
+          {
+            "id": "op_duck_music",
+            "rationale": "在人声出现时压低配乐，讲话结束后平滑恢复。",
+            "type": "duck_music",
+            "target": {
+              "music_track_id": "music",
+              "voice_track_id": "audio_voice"
+            },
+            "params": {
+              "duck_db": -9,
+              "attack_ms": 120,
+              "release_ms": 650,
+              "segments": [
+                {
+                  "start_ms": 10000,
+                  "end_ms": 24200,
+                  "confidence": 0.9
+                }
+              ]
+            }
+          },
+          {
+            "id": "op_audio_fade",
+            "rationale": "对音频片段添加平滑淡入淡出，不作用于视频轨。",
+            "type": "apply_audio_fade",
+            "target": {
+              "track_id": "music",
+              "clip_id": "clip_audio_asset_fbc3fa99"
+            },
+            "params": {
+              "fade_type": "out",
+              "duration_ms": 1200,
+              "curve": "equal_power"
+            }
+          },
+          {
+            "id": "op_audio_enhance",
+            "rationale": "根据 Prompt 调整音频响度、静音或淡入淡出。",
+            "type": "adjust_audio",
+            "target": {
+              "clip_id": "clip_audio_asset_fbc3fa99"
+            },
+            "params": {
+              "volume_db": 2,
+              "normalize": true,
+              "fade_out_ms": 1000
+            }
+          }
+        ],
+        "unsupported_intents": []
+      },
+      "state": "invalid",
+      "provider": "mock",
+      "prompt": "把人声弄清楚，背景音乐在人说话时小一点，结尾淡出",
+      "createdAt": "2026-05-24T14:47:18.142Z",
+      "updatedAt": "2026-05-24T14:47:18.142Z",
+      "expiresAt": "2026-06-23T14:47:18.142Z"
     }
   },
   "exports": {

@@ -113,8 +113,86 @@ describe("ffmpeg command builder", () => {
     const voiceChain = joined.slice(joined.indexOf("[1:a:0]"), joined.indexOf("[a0]"));
     const musicChain = joined.slice(joined.indexOf("[2:a:0]"), joined.indexOf("[a1]"));
     expect(voiceChain).toContain("afftdn");
-    expect(voiceChain).not.toContain("between(t,2.000,5.000)");
-    expect(musicChain).toContain("between(t,2.000,5.000)");
+    expect(voiceChain).not.toContain("between(t,1.000,4.000)");
+    expect(musicChain).toContain("between(t,1.000,4.000)");
     expect(musicChain).toContain("afade=t=out");
+  });
+
+  it("converts ducking from timeline time to local filter time with positive audio offset and non-zero source start", () => {
+    const offsetAudio: Timeline = {
+      ...timeline,
+      durationMs: 12000,
+      tracks: [
+        { id: "video_main", kind: "video", name: "视频", clips: [{ id: "clip", trackId: "video_main", kind: "video", assetId: "asset", startMs: 0, endMs: 12000, sourceStartMs: 0, sourceEndMs: 12000 }] },
+        {
+          id: "music",
+          kind: "audio",
+          role: "music",
+          name: "配乐",
+          clips: [{
+            id: "music_clip",
+            trackId: "music",
+            kind: "audio",
+            assetId: "music_asset",
+            startMs: 1000,
+            endMs: 10000,
+            sourceStartMs: 2500,
+            sourceEndMs: 11500,
+            audioOffsetMs: 500,
+            audioEffects: [{ id: "duck", type: "duck_music", voiceTrackId: "voice", duckDb: -9, attackMs: 120, releaseMs: 650, segments: [{ startMs: 2000, endMs: 5000 }] }],
+          }],
+        },
+      ],
+    };
+    const command = buildFfmpegCommand(offsetAudio, "source", "out.mp4", [
+      ...assets,
+      { id: "music_asset", projectId: "project", kind: "audio", originalName: "music.mp3", mimeType: "audio/mpeg", durationMs: 12000, filePath: "/tmp/music.mp3" },
+    ]);
+    const joined = command.args.join(" ");
+    expect(joined).toContain("[1:a:0]atrim=start=2.500:end=11.500");
+    expect(joined).toContain("adelay=1500:all=1");
+    expect(joined).toContain("between(t,0.500,3.500)");
+    expect(joined).not.toContain("between(t,2.000,5.000)");
+  });
+
+  it("converts mute ranges from timeline time to local filter time with negative audio offset and clips non-overlap", () => {
+    const offsetAudio: Timeline = {
+      ...timeline,
+      durationMs: 12000,
+      tracks: [
+        { id: "video_main", kind: "video", name: "视频", clips: [{ id: "clip", trackId: "video_main", kind: "video", assetId: "asset", startMs: 0, endMs: 12000, sourceStartMs: 0, sourceEndMs: 12000 }] },
+        {
+          id: "voice",
+          kind: "audio",
+          role: "voice",
+          name: "人声",
+          clips: [{
+            id: "voice_clip",
+            trackId: "voice",
+            kind: "audio",
+            assetId: "voice_asset",
+            startMs: 3000,
+            endMs: 9000,
+            sourceStartMs: 4000,
+            sourceEndMs: 10000,
+            audioOffsetMs: -750,
+            audioEffects: [
+              { id: "mute", type: "mute_range", startMs: 5000, endMs: 6500, rampMs: 80, preserveVideo: true },
+              { id: "mute-outside", type: "mute_range", startMs: 10000, endMs: 11000, rampMs: 80, preserveVideo: true },
+            ],
+          }],
+        },
+      ],
+    };
+    const command = buildFfmpegCommand(offsetAudio, "source", "out.mp4", [
+      ...assets,
+      { id: "voice_asset", projectId: "project", kind: "audio", originalName: "voice.wav", mimeType: "audio/wav", durationMs: 10000, filePath: "/tmp/voice.wav" },
+    ]);
+    const joined = command.args.join(" ");
+    expect(joined).toContain("[1:a:0]atrim=start=4.000:end=10.000,asetpts=PTS-STARTPTS,atrim=start=0.750,asetpts=PTS-STARTPTS");
+    expect(joined).toContain("adelay=2250:all=1");
+    expect(joined).toContain("between(t,2.750,4.250)");
+    expect(joined).not.toContain("between(t,5.000,6.500)");
+    expect(joined).not.toContain("between(t,7.750,8.750)");
   });
 });

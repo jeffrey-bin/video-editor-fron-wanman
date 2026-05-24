@@ -11,7 +11,22 @@ const sec = (ms: number) => (ms / 1000).toFixed(3);
 const linearFromDb = (db: number) => Number(10 ** (db / 20)).toFixed(4);
 const limiterFromDbfs = (dbfs: number) => Number(10 ** (dbfs / 20)).toFixed(4);
 
-const filterForEffect = (effect: AudioEffect, clip: Clip, options: { timelineBased: boolean } = { timelineBased: true }): string[] => {
+type EffectTimeOptions = {
+  timelineBased: boolean;
+  timelineToLocalMs?: number;
+  localDurationMs?: number;
+};
+
+const localTimeRange = (range: { startMs: number; endMs: number }, options: EffectTimeOptions) => {
+  if (options.timelineBased) return { startMs: range.startMs, endMs: range.endMs };
+  const timelineToLocalMs = options.timelineToLocalMs ?? 0;
+  const localDurationMs = options.localDurationMs ?? Number.POSITIVE_INFINITY;
+  const startMs = Math.max(0, range.startMs - timelineToLocalMs);
+  const endMs = Math.min(localDurationMs, range.endMs - timelineToLocalMs);
+  return startMs < endMs ? { startMs, endMs } : undefined;
+};
+
+const filterForEffect = (effect: AudioEffect, clip: Clip, options: EffectTimeOptions = { timelineBased: true }): string[] => {
   switch (effect.type) {
     case "reduce_noise": {
       const nr = Math.min(18, Math.max(4, Math.round(4 + effect.strength * 16)));
@@ -21,9 +36,15 @@ const filterForEffect = (effect: AudioEffect, clip: Clip, options: { timelineBas
     case "equalize_loudness":
       return [`loudnorm=I=${effect.targetLufs}:TP=${effect.limitPeakDbfs}:LRA=11`, `alimiter=limit=${limiterFromDbfs(effect.limitPeakDbfs)}`];
     case "duck_music":
-      return effect.segments.map((segment) => `volume=enable='between(t,${sec(segment.startMs)},${sec(segment.endMs)})':volume=${linearFromDb(effect.duckDb)}`);
+      return effect.segments
+        .map((segment) => localTimeRange(segment, options))
+        .filter((segment): segment is { startMs: number; endMs: number } => Boolean(segment))
+        .map((segment) => `volume=enable='between(t,${sec(segment.startMs)},${sec(segment.endMs)})':volume=${linearFromDb(effect.duckDb)}`);
     case "mute_range":
-      return [`volume=enable='between(t,${sec(effect.startMs)},${sec(effect.endMs)})':volume=0`];
+      {
+        const range = localTimeRange(effect, options);
+        return range ? [`volume=enable='between(t,${sec(range.startMs)},${sec(range.endMs)})':volume=0`] : [];
+      }
     case "audio_fade": {
       const durationSeconds = sec(effect.durationMs);
       const startMs = options.timelineBased ? (effect.fadeType === "out" ? Math.max(0, clip.endMs - effect.durationMs) : clip.startMs) : (effect.fadeType === "out" ? Math.max(0, clip.endMs - clip.startMs - effect.durationMs) : 0);
@@ -32,12 +53,12 @@ const filterForEffect = (effect: AudioEffect, clip: Clip, options: { timelineBas
   }
 };
 
-const clipFilters = (clip: Clip, timelineBased: boolean): string[] => {
+const clipFilters = (clip: Clip, options: EffectTimeOptions): string[] => {
   const filters: string[] = [];
   if (clip.muted) filters.push("volume=0");
   else if (clip.volumeDb !== undefined) filters.push(`volume=${clip.volumeDb}dB`);
   if (clip.filters?.normalize) filters.push("loudnorm");
-  for (const effect of clip.audioEffects ?? []) filters.push(...filterForEffect(effect, clip, { timelineBased }));
+  for (const effect of clip.audioEffects ?? []) filters.push(...filterForEffect(effect, clip, options));
   return filters;
 };
 
@@ -59,9 +80,10 @@ export const buildTrackAwareAudioFilterGraph = (timeline: Timeline, renderPlan: 
     const end = sec(segment.sourceEndMs);
     const delayMs = Math.max(0, segment.timelineStartMs + (segment.audioOffsetMs ?? 0));
     const negativeOffsetTrim = Math.max(0, -(segment.audioOffsetMs ?? 0));
+    const localDurationMs = Math.max(0, segment.sourceEndMs - segment.sourceStartMs - negativeOffsetTrim);
     const chain = [`[${inputIndex}:a:0]atrim=start=${start}:end=${end}`, "asetpts=PTS-STARTPTS"];
     if (negativeOffsetTrim > 0) chain.push(`atrim=start=${sec(negativeOffsetTrim)}`, "asetpts=PTS-STARTPTS");
-    chain.push(...clipFilters(clip, false));
+    chain.push(...clipFilters(clip, { timelineBased: false, timelineToLocalMs: delayMs, localDurationMs }));
     if (delayMs > 0) chain.push(`adelay=${delayMs}:all=1`);
     chain.push(`apad=pad_dur=${sec(Math.max(0, renderPlan.durationMs - delayMs))}`, `atrim=duration=${sec(renderPlan.durationMs)}`);
     filters.push(`${chain.join(",")}[${label}]`);
@@ -81,7 +103,7 @@ export const buildAudioFilterGraph = (timeline: Timeline): AudioFilterGraph => {
   const audioClips = timeline.tracks.flatMap((track) => track.clips).filter((clip) => clip.kind === "audio");
   const filters: string[] = [];
   for (const clip of audioClips) {
-    filters.push(...clipFilters(clip, true));
+    filters.push(...clipFilters(clip, { timelineBased: true }));
     if (clip.audioOffsetMs && clip.audioOffsetMs > 0) filters.push(`adelay=${clip.audioOffsetMs}|${clip.audioOffsetMs}`);
     if (clip.audioOffsetMs && clip.audioOffsetMs < 0) filters.push(`atrim=start=${sec(Math.abs(clip.audioOffsetMs))},asetpts=PTS-STARTPTS`);
   }
