@@ -1,0 +1,24 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "../test-results/real-llm-semantic-runner-dist",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "jsx": "react-jsx",
+    "declaration": false,
+    "sourceMap": false,
+    "incremental": false,
+    "isolatedModules": false,
+    "rootDir": "..",
+    "tsBuildInfoFile": "../test-results/real-llm-semantic-runner.tsbuildinfo"
+  },
+  "include": [
+    "../scripts/real-llm-semantic-quality-runner.ts",
+    "../src/server/llm/**/*.ts",
+    "../src/server/editor/**/*.ts",
+    "../src/types/**/*.ts"
+  ]
+}

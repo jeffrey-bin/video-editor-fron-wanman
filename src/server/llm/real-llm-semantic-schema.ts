@@ -1,15 +1,17 @@
 import { z } from "zod";
 import { OperationTypeSchema } from "@/server/editor/operation-schema";
 
-export const TimeRangeSchema = z.object({
+const TimeRangeBaseSchema = z.object({
   start_ms: z.number().int().nonnegative(),
   end_ms: z.number().int().positive(),
   confidence: z.number().min(0).max(1).optional(),
-}).superRefine((range, ctx) => {
+});
+
+export const TimeRangeSchema = TimeRangeBaseSchema.superRefine((range, ctx) => {
   if (range.start_ms >= range.end_ms) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "start_ms must be before end_ms" });
 });
 
-export const TranscriptSegmentSchema = TimeRangeSchema.extend({
+export const TranscriptSegmentSchema = TimeRangeBaseSchema.extend({
   text: z.string().min(1),
   source: z.enum(["mock", "fixture", "local_analyzer", "imported", "user"]).default("fixture"),
   confidence: z.number().min(0).max(1),
@@ -135,4 +137,3 @@ export type RealLlmSemanticCase = z.infer<typeof RealLlmSemanticCaseSchema>;
 export type ExpectedRealLlmSemanticPlan = z.infer<typeof ExpectedRealLlmSemanticPlanSchema>;
 export type NormalizedRealLlmPlan = z.infer<typeof NormalizedRealLlmPlanSchema>;
 export type RealLlmSemanticReport = z.infer<typeof RealLlmSemanticReportSchema>;
-

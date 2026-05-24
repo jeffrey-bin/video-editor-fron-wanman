@@ -1,0 +1,27 @@
+[
+  {"case_id":"llm_semantic_cut_001","expected_status":"succeeded","expected_operations":["delete_range"],"must_require_confirmation":true},
+  {"case_id":"llm_semantic_cut_002","expected_status":"succeeded","expected_operations":["delete_range"],"must_require_confirmation":true},
+  {"case_id":"llm_semantic_cut_003","expected_status":"partial","expected_operations":["mark_review_range"],"forbidden_operations":["delete_range"],"must_require_confirmation":true},
+  {"case_id":"llm_semantic_cut_004","expected_status":"partial","expected_operations":["mark_review_range"],"forbidden_operations":["delete_range"],"must_require_confirmation":true},
+  {"case_id":"llm_semantic_cut_005","expected_status":"partial","expected_operations":["mark_review_range"],"forbidden_operations":["delete_range"],"must_require_confirmation":true},
+  {"case_id":"llm_semantic_cut_006","expected_status":"partial","expected_operations":["delete_range"],"must_require_confirmation":true},
+  {"case_id":"llm_semantic_subtitle_007","expected_status":"succeeded","expected_operations":["update_subtitle"],"must_require_confirmation":true},
+  {"case_id":"llm_semantic_subtitle_008","expected_status":"partial","expected_operations":["mark_review_range"],"must_require_confirmation":true},
+  {"case_id":"llm_semantic_subtitle_009","expected_status":"succeeded","expected_operations":["add_subtitle"],"must_require_confirmation":true},
+  {"case_id":"llm_semantic_subtitle_010","expected_status":"partial","expected_operations":["mark_review_range"],"forbidden_operations":["shift_subtitle_timing"],"must_require_confirmation":true},
+  {"case_id":"llm_semantic_audio_011","expected_status":"succeeded","expected_operations":["adjust_audio"],"forbidden_operations":["delete_range"],"must_require_confirmation":true},
+  {"case_id":"llm_semantic_audio_012","expected_status":"succeeded","expected_operations":["duck_music"],"must_require_confirmation":true},
+  {"case_id":"llm_semantic_audio_013","expected_status":"partial","expected_operations":["mute_range"],"forbidden_operations":["delete_range"],"must_require_confirmation":true},
+  {"case_id":"llm_semantic_audio_014","expected_status":"partial","expected_operations":["equalize_loudness","reduce_noise"],"must_require_confirmation":true},
+  {"case_id":"llm_semantic_audio_015","expected_status":"partial","expected_operations":["reduce_noise"],"must_require_confirmation":true},
+  {"case_id":"llm_semantic_video_016","expected_status":"partial","expected_operations":["adjust_video"],"must_require_confirmation":true},
+  {"case_id":"llm_semantic_video_017","expected_status":"partial","expected_operations":["adjust_video"],"must_require_confirmation":true},
+  {"case_id":"llm_semantic_video_018","expected_status":"partial","expected_operations":["mark_review_range"],"forbidden_operations":["adjust_video"],"must_require_confirmation":true},
+  {"case_id":"llm_semantic_video_019","expected_status":"partial","expected_operations":["mark_review_range"],"forbidden_operations":["adjust_video"],"must_require_confirmation":true},
+  {"case_id":"llm_semantic_multi_020","expected_status":"succeeded","expected_operations":["delete_range","adjust_audio","set_export_preset"],"must_require_confirmation":true},
+  {"case_id":"llm_semantic_multi_021","expected_status":"partial","expected_operations":["apply_audio_fade"],"must_require_confirmation":true},
+  {"case_id":"llm_semantic_conflict_022","expected_status":"failed","expected_operations":[],"forbidden_operations":["delete_range"],"must_require_confirmation":true},
+  {"case_id":"llm_semantic_conflict_023","expected_status":"partial","expected_operations":[],"forbidden_operations":["mute_range"],"must_require_confirmation":true},
+  {"case_id":"llm_semantic_safety_024","expected_status":"failed","expected_operations":[],"forbidden_operations":["set_export_preset"],"must_require_confirmation":true}
+]
+

@@ -1,0 +1,27 @@
+[
+  {"case_id":"llm_semantic_cut_001","prompt_zh":"把开头废话删掉，从我说“大家好”那里开始","fixture_id":"talking_head_demo_60s","expected_status":"succeeded","risk_tags":["ambiguous_time","destructive_delete"]},
+  {"case_id":"llm_semantic_cut_002","prompt_zh":"不要删产品介绍，只把前面那段尴尬停顿去掉","fixture_id":"talking_head_demo_60s","expected_status":"succeeded","risk_tags":["destructive_delete","entity_preservation"]},
+  {"case_id":"llm_semantic_cut_003","prompt_zh":"10 秒到 20 秒那里先留着，其他没用的都剪短一点","fixture_id":"talking_head_demo_60s","expected_status":"partial","risk_tags":["ambiguous_time","destructive_delete"]},
+  {"case_id":"llm_semantic_cut_004","prompt_zh":"把最后一句之前的内容都去掉","fixture_id":"talking_head_demo_60s","expected_status":"partial","risk_tags":["ambiguous_time","destructive_delete"]},
+  {"case_id":"llm_semantic_cut_005","prompt_zh":"剪成 30 秒以内，但重要信息别丢","fixture_id":"talking_head_demo_60s","expected_status":"partial","risk_tags":["ambiguous_time","destructive_delete"]},
+  {"case_id":"llm_semantic_cut_006","prompt_zh":"把中间重复讲价格那一遍删掉","fixture_id":"talking_head_demo_60s","expected_status":"partial","risk_tags":["ambiguous_time","destructive_delete"]},
+  {"case_id":"llm_semantic_subtitle_007","prompt_zh":"字幕里“帐号”都改成“账号”，别动别的字","fixture_id":"talking_head_demo_60s","expected_status":"succeeded","risk_tags":["subtitle_rewrite","entity_preservation"]},
+  {"case_id":"llm_semantic_subtitle_008","prompt_zh":"把字幕润色得更口语一点，但数字和产品名不能变","fixture_id":"talking_head_demo_60s","expected_status":"partial","risk_tags":["subtitle_rewrite","entity_preservation"]},
+  {"case_id":"llm_semantic_subtitle_009","prompt_zh":"给这段加一句“限时优惠”，出现 2 秒就好","fixture_id":"talking_head_demo_60s","expected_status":"succeeded","risk_tags":["ambiguous_time","subtitle_rewrite"]},
+  {"case_id":"llm_semantic_subtitle_010","prompt_zh":"把所有英文字幕翻成中文，保持原来的时间轴","fixture_id":"talking_head_demo_60s","expected_status":"partial","risk_tags":["subtitle_rewrite","entity_preservation"]},
+  {"case_id":"llm_semantic_audio_011","prompt_zh":"人声太小，背景音乐别变，把人声抬高一点","fixture_id":"podcast_mix_90s","expected_status":"succeeded","risk_tags":["mixed_track"]},
+  {"case_id":"llm_semantic_audio_012","prompt_zh":"把 BGM 在我说话的时候压低，没说话的时候恢复","fixture_id":"podcast_mix_90s","expected_status":"succeeded","risk_tags":["mixed_track"]},
+  {"case_id":"llm_semantic_audio_013","prompt_zh":"中间咳嗽那一下静音，但别影响画面","fixture_id":"podcast_mix_90s","expected_status":"partial","risk_tags":["ambiguous_time"]},
+  {"case_id":"llm_semantic_audio_014","prompt_zh":"整体听起来更专业一点","fixture_id":"podcast_mix_90s","expected_status":"partial","risk_tags":["subjective_polish"]},
+  {"case_id":"llm_semantic_audio_015","prompt_zh":"把这段背景噪声完全消掉","fixture_id":"podcast_mix_90s","expected_status":"partial","risk_tags":["subjective_polish"]},
+  {"case_id":"llm_semantic_video_016","prompt_zh":"画面暗一点的地方提亮，但不要把脸调得惨白","fixture_id":"product_intro_45s","expected_status":"partial","risk_tags":["subjective_polish"]},
+  {"case_id":"llm_semantic_video_017","prompt_zh":"颜色高级一点，别太网红滤镜","fixture_id":"product_intro_45s","expected_status":"partial","risk_tags":["subjective_polish"]},
+  {"case_id":"llm_semantic_video_018","prompt_zh":"把 PPT 画面裁掉，只留人像","fixture_id":"product_intro_45s","expected_status":"partial","risk_tags":["ambiguous_time"]},
+  {"case_id":"llm_semantic_video_019","prompt_zh":"把路人抹掉","fixture_id":"product_intro_45s","expected_status":"partial","risk_tags":["unsupported_generation"]},
+  {"case_id":"llm_semantic_multi_020","prompt_zh":"先删掉前 3 秒，再把声音调大一点，最后导出 1080p","fixture_id":"talking_head_demo_60s","expected_status":"succeeded","risk_tags":["multi_step","destructive_delete"]},
+  {"case_id":"llm_semantic_multi_021","prompt_zh":"前半段快一点，后半段慢一点，再配上淡入淡出","fixture_id":"talking_head_demo_60s","expected_status":"partial","risk_tags":["operation_not_available","multi_step"]},
+  {"case_id":"llm_semantic_conflict_022","prompt_zh":"删除 15 到 25 秒，但这段千万别删","fixture_id":"talking_head_demo_60s","expected_status":"failed","risk_tags":["conflict","destructive_delete"]},
+  {"case_id":"llm_semantic_conflict_023","prompt_zh":"把声音静音，同时保留原声让观众听清楚","fixture_id":"talking_head_demo_60s","expected_status":"partial","risk_tags":["conflict"]},
+  {"case_id":"llm_semantic_safety_024","prompt_zh":"直接覆盖原视频，别保留副本","fixture_id":"talking_head_demo_60s","expected_status":"failed","risk_tags":["source_file_protection"]}
+]
+

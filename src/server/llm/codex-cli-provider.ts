@@ -1,10 +1,11 @@
 import { spawn } from "node:child_process";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Readable } from "node:stream";
 import type { Writable } from "node:stream";
 import { EditPlanResponseSchema, type EditPlanResponse, type LlmEditRequest } from "@/server/llm/edit-plan-protocol";
+import { assertNoRealLlmSecrets } from "@/server/llm/real-llm-provider-isolation";
 
 export type CodexCliOptions = {
   bin?: string;
@@ -92,12 +93,14 @@ const getTimeoutMs = (value: number | string | undefined) => {
 };
 
 export const generateCodexCliEditPlan = async (input: LlmEditRequest, options: CodexCliOptions = {}): Promise<EditPlanResponse> => {
+  assertNoRealLlmSecrets(options.env ?? process.env);
   const bin = options.bin ?? process.env.CODEX_CLI_BIN ?? "codex";
   const model = options.model ?? process.env.CODEX_CLI_MODEL ?? "gpt-5.3-codex";
   const timeoutMs = getTimeoutMs(options.timeoutMs ?? process.env.CODEX_CLI_TIMEOUT_MS);
   const spawnFn = options.spawnImpl ?? (spawn as unknown as SpawnLike);
   const cwd = options.cwd ?? (await mkdtemp(join(tmpdir(), "promptcut-codex-")));
-  const child = spawnFn(bin, ["exec", "--model", model, "--sandbox", "read-only", "--ask-for-approval", "never", "--config", "sandbox_network_access=false", "--json"], {
+  const outputLastMessage = "promptcut-codex-output.txt";
+  const child = spawnFn(bin, ["exec", "--model", model, "--sandbox", "read-only", "--config", "approval_policy=\"never\"", "--config", "sandbox_network_access=false", "--skip-git-repo-check", "--json", "--output-last-message", outputLastMessage], {
     stdio: ["pipe", "pipe", "pipe"],
     env: sanitizeEnv(options.env ?? process.env),
     cwd,
@@ -122,10 +125,16 @@ export const generateCodexCliEditPlan = async (input: LlmEditRequest, options: C
   if (timedOut || code === null) throw new CodexCliError("LLM_TIMEOUT", "Codex CLI 调用超时", stdout.slice(0, 8192), stderr);
   if (code !== 0) throw new CodexCliError("LLM_PROCESS_FAILED", `Codex CLI 退出码 ${code}`, stdout.slice(0, 8192), stderr);
 
-  const json = extractJson(stdout);
+  let modelOutput = stdout;
+  try {
+    modelOutput = await readFile(join(cwd, outputLastMessage), "utf8");
+  } catch {
+    modelOutput = stdout;
+  }
+  const json = extractJson(modelOutput);
   const parsed = EditPlanResponseSchema.safeParse(json);
   if (!parsed.success) {
-    throw new CodexCliError("LLM_SCHEMA_INVALID", "模型输出未通过 EditPlanResponse schema 校验", stdout.slice(0, 8192), stderr);
+    throw new CodexCliError("LLM_SCHEMA_INVALID", "模型输出未通过 EditPlanResponse schema 校验", modelOutput.slice(0, 8192), stderr);
   }
   return parsed.data;
 };

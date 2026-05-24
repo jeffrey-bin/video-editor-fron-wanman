@@ -25,11 +25,12 @@ const validPlan = JSON.stringify({
 
 type SpawnCall = { command: string; args: string[]; options: { cwd: string; env: Record<string, string | undefined> } };
 
-const mockSpawn = (stdoutText: string, code: number | null, stderrText = "", calls: SpawnCall[] = []) => {
+const mockSpawn = (stdoutText: string, code: number | null, stderrText = "", calls: SpawnCall[] = [], stdinTexts: string[] = []) => {
   return ((command: string, args: string[], options: SpawnCall["options"]) => {
     calls.push({ command, args, options });
     const child = new EventEmitter() as EventEmitter & { stdin: PassThrough; stdout: PassThrough; stderr: PassThrough; kill: () => void };
     child.stdin = new PassThrough();
+    child.stdin.on("data", (chunk) => stdinTexts.push(chunk.toString()));
     child.stdout = new PassThrough();
     child.stderr = new PassThrough();
     child.kill = () => {
@@ -81,9 +82,12 @@ describe("codex cli provider", () => {
 
   it("parses successful CLI output through schema", async () => {
     const calls: SpawnCall[] = [];
-    const plan = await generateCodexCliEditPlan(request, { spawnImpl: mockSpawn(validPlan, 0, "", calls), timeoutMs: 100, cwd: "/tmp/promptcut-codex-test", env: { PATH: "/bin", HOME: "/home/me", CODEX_HOME: "/secret", LANG: "C" } });
+    const stdinTexts: string[] = [];
+    const plan = await generateCodexCliEditPlan(request, { spawnImpl: mockSpawn(validPlan, 0, "", calls, stdinTexts), timeoutMs: 100, cwd: "/tmp/promptcut-codex-test", env: { PATH: "/bin", HOME: "/home/me", CODEX_HOME: "/secret", LANG: "C" } });
     expect(plan.summary).toBe("ok");
-    expect(calls[0].args).toEqual(["exec", "--model", "gpt-5.3-codex", "--sandbox", "read-only", "--ask-for-approval", "never", "--config", "sandbox_network_access=false", "--json"]);
+    expect(calls[0].args).toEqual(["exec", "--model", "gpt-5.3-codex", "--sandbox", "read-only", "--config", "approval_policy=\"never\"", "--config", "sandbox_network_access=false", "--skip-git-repo-check", "--json", "--output-last-message", "promptcut-codex-output.txt"]);
+    expect(calls[0].args.join(" ")).not.toContain(request.user_intent.prompt);
+    expect(stdinTexts.join("")).toContain(request.user_intent.prompt);
     expect(calls[0].options.cwd).toBe("/tmp/promptcut-codex-test");
     expect(calls[0].options.env).toEqual({ PATH: "/bin", LANG: "C" });
   });
@@ -93,6 +97,12 @@ describe("codex cli provider", () => {
     await expect(generateCodexCliEditPlan(request, { spawnImpl: mockSpawn(JSON.stringify({ status: "succeeded" }), 0), timeoutMs: 100 })).rejects.toMatchObject({ code: "LLM_SCHEMA_INVALID" });
     await expect(generateCodexCliEditPlan(request, { spawnImpl: mockSpawn("", 2, "boom"), timeoutMs: 100 })).rejects.toMatchObject({ code: "LLM_PROCESS_FAILED", stderr: "boom" });
     expect(sanitizeEnv({ PATH: "/bin", SECRET: "no", HOME: "/home/me", CODEX_HOME: "/tmp" })).toEqual({ PATH: "/bin" });
+  });
+
+  it("hard-fails before spawn when real LLM secrets are present", async () => {
+    const calls: SpawnCall[] = [];
+    await expect(generateCodexCliEditPlan(request, { spawnImpl: mockSpawn(validPlan, 0, "", calls), timeoutMs: 100, env: { PATH: "/bin", OPENAI_API_KEY: "sk-real-secret" } })).rejects.toThrow("REAL_LLM_SECRET_PRESENT");
+    expect(calls).toEqual([]);
   });
 
   it("kills timed out Codex CLI processes and returns a sanitized user-facing error", async () => {

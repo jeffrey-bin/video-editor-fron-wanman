@@ -69,20 +69,6 @@ const baseContext = (durationMs: number) => ({
   visual_annotations: [{ type: "person_bbox" as const, start_ms: 0, end_ms: durationMs, bbox: { x: 0.34, y: 0.12, w: 0.32, h: 0.74 } }, { type: "ppt_region" as const, start_ms: 0, end_ms: 24000, bbox: { x: 0, y: 0, w: 0.42, h: 1 } }],
 });
 
-const mixedAudioContext = (durationMs: number) => {
-  const context = baseContext(durationMs);
-  return {
-    ...context,
-    tracks: [
-      { id: "video-main", kind: "video" as const, locked: false },
-      { id: "mixed", kind: "audio" as const, role: "mixed" as const, locked: false },
-      { id: "subtitles", kind: "subtitle" as const, locked: false },
-      { id: "ai_markers", kind: "ai" as const, locked: false },
-    ],
-    clips: context.clips.filter((clip) => !["voice-1", "music-1"].includes(clip.id)).concat({ id: "mixed-1", track_id: "mixed", kind: "audio" as const, start_ms: 0, end_ms: durationMs }),
-  };
-};
-
 const c = (case_id: string, prompt_zh: string, expected_status: RealLlmSemanticCase["expected_status"], risk_tags: RealLlmSemanticCase["risk_tags"], scope: RealLlmSemanticCase["scope"] = { type: "timeline", start_ms: 0, end_ms: 60000 }, operations: OperationType[] = OPS, context = baseContext(60000), fixture_id: RealLlmSemanticCase["fixture_id"] = "talking_head_demo_60s"): RealLlmSemanticCase =>
   RealLlmSemanticCaseSchema.parse({ case_id, prompt_zh, fixture_id, scope, timeline_context: context, available_operations: operations, expected_status, risk_tags });
 
@@ -187,4 +173,3 @@ export const buildRealLlmSemanticTimeline = (semanticCase: RealLlmSemanticCase):
     clips: semanticCase.timeline_context.clips.filter((clip) => clip.track_id === track.id).map((clip) => ({ id: clip.id, trackId: clip.track_id, kind: clip.kind, startMs: clip.start_ms, endMs: clip.end_ms, sourceStartMs: 0, sourceEndMs: clip.end_ms - clip.start_ms, text: clip.text })),
   })),
 });
-
