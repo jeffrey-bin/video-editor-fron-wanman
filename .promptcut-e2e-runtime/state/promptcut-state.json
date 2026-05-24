@@ -1,0 +1,526 @@
+{
+  "schemaVersion": 1,
+  "projects": {
+    "project_demo": {
+      "id": "project_demo",
+      "name": "旅行 vlog 片段",
+      "locale": "zh-CN",
+      "exportPreset": "1080p_landscape",
+      "storageRoot": "projects/project_demo",
+      "createdAt": "2026-05-24T09:42:16.338Z",
+      "updatedAt": "2026-05-24T09:42:16.856Z",
+      "timeline": {
+        "version": 3,
+        "durationMs": 21200,
+        "history": [
+          {
+            "id": "history_3",
+            "requestId": "c6f1e4b2-f9af-431c-98f0-cbc3613171c1",
+            "summary": "已生成 3 个可审阅操作：剪辑、字幕或基础润色参数。",
+            "operationIds": [
+              "op_delete_intro",
+              "op_video_polish",
+              "op_add_subtitle"
+            ],
+            "createdAt": "2026-05-24T09:42:16.766Z"
+          }
+        ],
+        "tracks": [
+          {
+            "id": "video_main",
+            "kind": "video",
+            "name": "视频 1",
+            "clips": [
+              {
+                "id": "clip_video_asset_91892e05",
+                "trackId": "video_main",
+                "assetId": "asset_91892e05",
+                "kind": "video",
+                "startMs": 0,
+                "endMs": 21200,
+                "sourceStartMs": 3000,
+                "sourceEndMs": 24200,
+                "filters": {
+                  "brightness": 0.08,
+                  "contrast": 0.05,
+                  "saturation": 0.04
+                }
+              }
+            ]
+          },
+          {
+            "id": "audio_voice",
+            "kind": "audio",
+            "name": "音频 1",
+            "clips": []
+          },
+          {
+            "id": "music",
+            "kind": "audio",
+            "name": "音乐",
+            "clips": []
+          },
+          {
+            "id": "subtitles",
+            "kind": "subtitle",
+            "name": "字幕",
+            "clips": [
+              {
+                "id": "subtitle_op_add_subtitle",
+                "trackId": "subtitles",
+                "kind": "subtitle",
+                "startMs": 1000,
+                "endMs": 5200,
+                "sourceStartMs": 1000,
+                "sourceEndMs": 5200,
+                "text": "这里的风景真的太美了"
+              }
+            ]
+          },
+          {
+            "id": "ai_markers",
+            "kind": "ai",
+            "name": "AI 标记",
+            "clips": []
+          }
+        ]
+      }
+    }
+  },
+  "assets": {
+    "project_demo": [
+      {
+        "id": "asset_91892e05",
+        "projectId": "project_demo",
+        "kind": "video",
+        "originalName": "travel-vlog.mp4",
+        "mimeType": "video/mp4",
+        "sizeBytes": 20650,
+        "sha256": "d61f476d57744d77cbb0f9ceba4df14065fc6d8b3377e2780c614b5a76017747",
+        "originalKey": "projects/project_demo/assets/asset_91892e05/original/d61f476d57744d77cbb0f9ceba4df14065fc6d8b3377e2780c614b5a76017747.mp4",
+        "probeStatus": "succeeded",
+        "durationMs": 24200,
+        "width": 1920,
+        "height": 1080,
+        "fps": 24,
+        "filePath": ".promptcut-e2e-runtime/objects/projects/project_demo/assets/asset_91892e05/original/d61f476d57744d77cbb0f9ceba4df14065fc6d8b3377e2780c614b5a76017747.mp4",
+        "thumbnailUrl": "gradient"
+      }
+    ]
+  },
+  "jobs": {
+    "asset_ingest_asset_91892e05": {
+      "id": "asset_ingest_asset_91892e05",
+      "projectId": "project_demo",
+      "type": "asset_ingest",
+      "status": "succeeded",
+      "progress": 100,
+      "input": {
+        "project_id": "project_demo",
+        "object_key": "projects/project_demo/assets/asset_91892e05/original/d61f476d57744d77cbb0f9ceba4df14065fc6d8b3377e2780c614b5a76017747.mp4"
+      },
+      "output": {
+        "asset_id": "asset_91892e05",
+        "object_key": "projects/project_demo/assets/asset_91892e05/original/d61f476d57744d77cbb0f9ceba4df14065fc6d8b3377e2780c614b5a76017747.mp4",
+        "size_bytes": 20650,
+        "sha256": "d61f476d57744d77cbb0f9ceba4df14065fc6d8b3377e2780c614b5a76017747"
+      },
+      "attempts": 1,
+      "maxAttempts": 1,
+      "createdAt": "2026-05-24T09:42:16.433Z",
+      "updatedAt": "2026-05-24T09:42:16.433Z",
+      "startedAt": "2026-05-24T09:42:16.433Z",
+      "finishedAt": "2026-05-24T09:42:16.433Z"
+    },
+    "job_b959770d": {
+      "id": "job_b959770d",
+      "projectId": "project_demo",
+      "type": "llm_edit_plan",
+      "status": "succeeded",
+      "progress": 100,
+      "input": {
+        "project_id": "project_demo",
+        "timeline_version": 2,
+        "prompt": "剪掉开头 3 秒的空白，增强人声并让画面更明亮、肤色更自然，添加字幕并优化断句",
+        "locale": "zh-CN",
+        "scope": {
+          "type": "timeline",
+          "start_ms": 0,
+          "end_ms": 24200
+        },
+        "request_id": "c6f1e4b2-f9af-431c-98f0-cbc3613171c1",
+        "request": {
+          "request_id": "c6f1e4b2-f9af-431c-98f0-cbc3613171c1",
+          "project": {
+            "project_id": "project_demo",
+            "duration_ms": 24200,
+            "timeline_version": 2
+          },
+          "user_intent": {
+            "prompt": "剪掉开头 3 秒的空白，增强人声并让画面更明亮、肤色更自然，添加字幕并优化断句",
+            "locale": "zh-CN",
+            "scope": {
+              "type": "timeline",
+              "start_ms": 0,
+              "end_ms": 24200
+            }
+          },
+          "context": {
+            "assets": [
+              {
+                "id": "asset_91892e05",
+                "kind": "video",
+                "originalName": "travel-vlog.mp4",
+                "durationMs": 24200,
+                "width": 1920,
+                "height": 1080,
+                "fps": 24
+              }
+            ],
+            "clips": [
+              {
+                "id": "clip_video_asset_91892e05",
+                "trackId": "video_main",
+                "kind": "video",
+                "startMs": 0,
+                "endMs": 24200,
+                "assetId": "asset_91892e05"
+              }
+            ],
+            "subtitles": [],
+            "available_operations": [
+              "trim_clip",
+              "delete_range",
+              "move_clip",
+              "split_clip",
+              "add_subtitle",
+              "update_subtitle",
+              "adjust_video",
+              "adjust_audio",
+              "set_export_preset"
+            ]
+          },
+          "constraints": {
+            "max_operations": 50,
+            "require_user_confirmation": true,
+            "do_not_modify_source_files": true
+          }
+        }
+      },
+      "attempts": 1,
+      "maxAttempts": 1,
+      "createdAt": "2026-05-24T09:42:16.633Z",
+      "updatedAt": "2026-05-24T09:42:16.646Z",
+      "leaseOwner": "local-2934",
+      "leaseExpiresAt": "2026-05-24T09:43:16.635Z",
+      "startedAt": "2026-05-24T09:42:16.635Z",
+      "output": {
+        "request_id": "c6f1e4b2-f9af-431c-98f0-cbc3613171c1",
+        "plan": {
+          "request_id": "c6f1e4b2-f9af-431c-98f0-cbc3613171c1",
+          "status": "succeeded",
+          "summary": "已生成 3 个可审阅操作：剪辑、字幕或基础润色参数。",
+          "confidence": 0.82,
+          "requires_confirmation": true,
+          "warnings": [
+            {
+              "code": "MOCK_TIMING",
+              "message": "时间点来自本地模拟，请预览后确认。"
+            }
+          ],
+          "operations": [
+            {
+              "id": "op_delete_intro",
+              "rationale": "根据 Prompt 删除开头空白。",
+              "type": "delete_range",
+              "target": {
+                "start_ms": 0,
+                "end_ms": 3000
+              },
+              "params": {
+                "ripple": true
+              }
+            },
+            {
+              "id": "op_video_polish",
+              "rationale": "轻度提升画面亮度和饱和度。",
+              "type": "adjust_video",
+              "target": {
+                "clip_id": "clip_video_asset_91892e05"
+              },
+              "params": {
+                "brightness": 0.08,
+                "contrast": 0.05,
+                "saturation": 0.04
+              }
+            },
+            {
+              "id": "op_add_subtitle",
+              "rationale": "根据 Prompt 添加一条中文字幕示例。",
+              "type": "add_subtitle",
+              "target": {
+                "track_id": "subtitles"
+              },
+              "params": {
+                "start_ms": 1000,
+                "end_ms": 5200,
+                "text": "这里的风景真的太美了",
+                "locale": "zh-CN"
+              }
+            }
+          ],
+          "unsupported_intents": []
+        },
+        "timeline_version": 2,
+        "plan_state": "ready"
+      },
+      "finishedAt": "2026-05-24T09:42:16.646Z"
+    },
+    "export_c24348a6": {
+      "id": "export_c24348a6",
+      "projectId": "project_demo",
+      "type": "timeline_export",
+      "status": "succeeded",
+      "progress": 100,
+      "input": {
+        "project_id": "project_demo",
+        "preset": "1080p_landscape",
+        "timeline_version": 3,
+        "ignorePendingPlan": true,
+        "object_key": "projects/project_demo/exports/export_c24348a6/1080p_landscape.mp4",
+        "timeline_snapshot": {
+          "version": 3,
+          "durationMs": 21200,
+          "history": [
+            {
+              "id": "history_3",
+              "requestId": "c6f1e4b2-f9af-431c-98f0-cbc3613171c1",
+              "summary": "已生成 3 个可审阅操作：剪辑、字幕或基础润色参数。",
+              "operationIds": [
+                "op_delete_intro",
+                "op_video_polish",
+                "op_add_subtitle"
+              ],
+              "createdAt": "2026-05-24T09:42:16.766Z"
+            }
+          ],
+          "tracks": [
+            {
+              "id": "video_main",
+              "kind": "video",
+              "name": "视频 1",
+              "clips": [
+                {
+                  "id": "clip_video_asset_91892e05",
+                  "trackId": "video_main",
+                  "assetId": "asset_91892e05",
+                  "kind": "video",
+                  "startMs": 0,
+                  "endMs": 21200,
+                  "sourceStartMs": 3000,
+                  "sourceEndMs": 24200,
+                  "filters": {
+                    "brightness": 0.08,
+                    "contrast": 0.05,
+                    "saturation": 0.04
+                  }
+                }
+              ]
+            },
+            {
+              "id": "audio_voice",
+              "kind": "audio",
+              "name": "音频 1",
+              "clips": []
+            },
+            {
+              "id": "music",
+              "kind": "audio",
+              "name": "音乐",
+              "clips": []
+            },
+            {
+              "id": "subtitles",
+              "kind": "subtitle",
+              "name": "字幕",
+              "clips": [
+                {
+                  "id": "subtitle_op_add_subtitle",
+                  "trackId": "subtitles",
+                  "kind": "subtitle",
+                  "startMs": 1000,
+                  "endMs": 5200,
+                  "sourceStartMs": 1000,
+                  "sourceEndMs": 5200,
+                  "text": "这里的风景真的太美了"
+                }
+              ]
+            },
+            {
+              "id": "ai_markers",
+              "kind": "ai",
+              "name": "AI 标记",
+              "clips": []
+            }
+          ]
+        }
+      },
+      "attempts": 1,
+      "maxAttempts": 2,
+      "createdAt": "2026-05-24T09:42:16.856Z",
+      "updatedAt": "2026-05-24T09:42:17.013Z",
+      "leaseOwner": "local-2934",
+      "leaseExpiresAt": "2026-05-24T09:43:16.860Z",
+      "startedAt": "2026-05-24T09:42:16.860Z",
+      "output": {
+        "export_id": "export_c24348a6",
+        "export_path": ".promptcut-e2e-runtime/objects/projects/project_demo/exports/export_c24348a6/1080p_landscape.mp4",
+        "object_key": "projects/project_demo/exports/export_c24348a6/1080p_landscape.mp4",
+        "preset": "1080p_landscape",
+        "command": {
+          "bin": "./tests/fixtures/fake-ffmpeg.mjs",
+          "ffprobeBin": "./tests/fixtures/fake-ffprobe.mjs",
+          "args": [
+            "-y",
+            "-ss",
+            "3.000",
+            "-t",
+            "21.200",
+            "-i",
+            ".promptcut-e2e-runtime/objects/projects/project_demo/assets/asset_91892e05/original/d61f476d57744d77cbb0f9ceba4df14065fc6d8b3377e2780c614b5a76017747.mp4",
+            "-vf",
+            "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,eq=brightness=0.08:contrast=1.05:saturation=1.04,drawtext=text='PromptCut 字幕轨':x=(w-text_w)/2:y=h-120:fontsize=36:fontcolor=white",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "20",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-movflags",
+            "+faststart",
+            ".promptcut-e2e-runtime/objects/projects/project_demo/exports/export_c24348a6/1080p_landscape.mp4"
+          ],
+          "outputPath": ".promptcut-e2e-runtime/objects/projects/project_demo/exports/export_c24348a6/1080p_landscape.mp4",
+          "requiresReencode": true,
+          "renderPlan": {
+            "durationMs": 21200,
+            "segments": [
+              {
+                "clipId": "clip_video_asset_91892e05",
+                "trackId": "video_main",
+                "assetId": "asset_91892e05",
+                "inputPath": ".promptcut-e2e-runtime/objects/projects/project_demo/assets/asset_91892e05/original/d61f476d57744d77cbb0f9ceba4df14065fc6d8b3377e2780c614b5a76017747.mp4",
+                "timelineStartMs": 0,
+                "timelineEndMs": 21200,
+                "sourceStartMs": 3000,
+                "sourceEndMs": 24200
+              }
+            ],
+            "subtitles": [
+              {
+                "text": "这里的风景真的太美了",
+                "startMs": 1000,
+                "endMs": 5200
+              }
+            ],
+            "hasVideoFilters": true,
+            "hasAudioFilters": false
+          }
+        },
+        "duration_ms": 21200,
+        "file_size_bytes": 20650,
+        "mode": "ffmpeg",
+        "expires_at": "2026-05-31T09:42:17.011Z"
+      },
+      "finishedAt": "2026-05-24T09:42:17.013Z"
+    }
+  },
+  "pendingPlans": {
+    "c6f1e4b2-f9af-431c-98f0-cbc3613171c1": {
+      "requestId": "c6f1e4b2-f9af-431c-98f0-cbc3613171c1",
+      "projectId": "project_demo",
+      "timelineVersion": 2,
+      "plan": {
+        "request_id": "c6f1e4b2-f9af-431c-98f0-cbc3613171c1",
+        "status": "succeeded",
+        "summary": "已生成 3 个可审阅操作：剪辑、字幕或基础润色参数。",
+        "confidence": 0.82,
+        "requires_confirmation": true,
+        "warnings": [
+          {
+            "code": "MOCK_TIMING",
+            "message": "时间点来自本地模拟，请预览后确认。"
+          }
+        ],
+        "operations": [
+          {
+            "id": "op_delete_intro",
+            "rationale": "根据 Prompt 删除开头空白。",
+            "type": "delete_range",
+            "target": {
+              "start_ms": 0,
+              "end_ms": 3000
+            },
+            "params": {
+              "ripple": true
+            }
+          },
+          {
+            "id": "op_video_polish",
+            "rationale": "轻度提升画面亮度和饱和度。",
+            "type": "adjust_video",
+            "target": {
+              "clip_id": "clip_video_asset_91892e05"
+            },
+            "params": {
+              "brightness": 0.08,
+              "contrast": 0.05,
+              "saturation": 0.04
+            }
+          },
+          {
+            "id": "op_add_subtitle",
+            "rationale": "根据 Prompt 添加一条中文字幕示例。",
+            "type": "add_subtitle",
+            "target": {
+              "track_id": "subtitles"
+            },
+            "params": {
+              "start_ms": 1000,
+              "end_ms": 5200,
+              "text": "这里的风景真的太美了",
+              "locale": "zh-CN"
+            }
+          }
+        ],
+        "unsupported_intents": []
+      },
+      "state": "applied",
+      "provider": "mock",
+      "prompt": "剪掉开头 3 秒的空白，增强人声并让画面更明亮、肤色更自然，添加字幕并优化断句",
+      "createdAt": "2026-05-24T09:42:16.646Z",
+      "updatedAt": "2026-05-24T09:42:16.766Z",
+      "expiresAt": "2026-06-23T09:42:16.646Z",
+      "appliedAt": "2026-05-24T09:42:16.766Z"
+    }
+  },
+  "exports": {
+    "export_c24348a6": {
+      "id": "export_c24348a6",
+      "projectId": "project_demo",
+      "jobId": "export_c24348a6",
+      "preset": "1080p_landscape",
+      "objectKey": "projects/project_demo/exports/export_c24348a6/1080p_landscape.mp4",
+      "sizeBytes": 20650,
+      "sha256": "d61f476d57744d77cbb0f9ceba4df14065fc6d8b3377e2780c614b5a76017747",
+      "durationMs": 21200,
+      "status": "succeeded",
+      "expiresAt": "2026-05-31T09:42:17.011Z",
+      "createdAt": "2026-05-24T09:42:17.013Z"
+    }
+  }
+}
