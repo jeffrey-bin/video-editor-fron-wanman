@@ -1,9 +1,9 @@
-import { chmod, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FilesystemObjectStore, buildObjectKey } from "@/server/storage/object-store";
-import { getStorageConfig } from "@/server/storage/config";
+import { assertProductionStorageIsConfigured, getStorageConfig } from "@/server/storage/config";
 
 let dir = "";
 
@@ -46,6 +46,8 @@ describe("P1 persistent storage", () => {
 
     const promptJob = await reloaded.createPromptEditJob({ project_id: project.id, timeline_version: persistedProject.timeline.version, prompt: "剪掉开头 3 秒并添加字幕", locale: "zh-CN" });
     expect((await reloaded.getJob(promptJob.job_id))?.status).toBe("succeeded");
+    await expect(reloaded.applyPendingPlan(project.id, { request_id: promptJob.request_id, timeline_version: persistedProject.timeline.version, operation_ids: [] })).rejects.toThrow("operation_ids 不能为空");
+    await expect(reloaded.applyPendingPlan(project.id, { request_id: promptJob.request_id, timeline_version: persistedProject.timeline.version, operation_ids: ["missing"] })).rejects.toThrow("operation_ids 不存在");
     await expect(reloaded.createExportJob({ project_id: project.id, preset: "1080p_landscape", timeline_version: persistedProject.timeline.version })).rejects.toThrow("UNCONFIRMED_EDIT_PLAN");
 
     await reloaded.applyPendingPlan(project.id, { request_id: promptJob.request_id, timeline_version: persistedProject.timeline.version });
@@ -63,6 +65,13 @@ describe("P1 persistent storage", () => {
     const signed = await reloaded.getExportDownloadUrl(exportJob.export_id);
     expect(signed.download_url).toContain(output.object_key);
     expect(signed.expires_in_seconds).toBe(600);
+
+    const statePath = join(dir, "state", "promptcut-state.json");
+    const database = JSON.parse(await readFile(statePath, "utf8"));
+    database.exports[exportJob.export_id].expiresAt = new Date(Date.now() - 1000).toISOString();
+    await writeFile(statePath, `${JSON.stringify(database, null, 2)}\n`);
+    const cleanup = await reloaded.cleanupExpiredStorage();
+    expect(cleanup.deleted_object_keys).toContain(output.object_key);
   });
 
   it("returns timeline conflicts and uses export timeline snapshots", async () => {
@@ -75,6 +84,16 @@ describe("P1 persistent storage", () => {
 
     const promptJob = await state.createPromptEditJob({ project_id: project.id, timeline_version: latest.timeline.version, prompt: "添加字幕", locale: "zh-CN" });
     await expect(state.applyPendingPlan(project.id, { request_id: promptJob.request_id, timeline_version: latest.timeline.version - 1 })).rejects.toThrow("TIMELINE_VERSION_CONFLICT");
+
+    vi.stubEnv("LLM_PROVIDER", "unsupported");
+    const failedPlanJob = await state.createPromptEditJob({ project_id: project.id, timeline_version: latest.timeline.version, prompt: "生成方案", locale: "zh-CN" });
+    expect((await state.getJob(failedPlanJob.job_id))?.status).toBe("failed");
+    expect(await state.getJob("missing")).toBeNull();
+
+    await state.resetPersistentStateForTests();
+    const failedExport = await state.createExportJob({ project_id: project.id, preset: "1080p_landscape", ignorePendingPlan: true });
+    expect((await state.getJob(failedExport.job_id))?.status).toBe("failed");
+    await expect(state.getExportDownloadUrl("missing")).rejects.toThrow("EXPORT_NOT_FOUND");
   });
 
   it("supports upload intent, complete-upload, idempotent object delete and production guards", async () => {
@@ -85,6 +104,9 @@ describe("P1 persistent storage", () => {
     const completed = await state.completeAssetUpload(intent.asset_id, { project_id: "project_demo", object_key: intent.object_key, sha256: "abc" });
     expect(completed.job_id).toBe(`asset_ingest_${intent.asset_id}`);
     expect(completed.asset.probeStatus).toBe("succeeded");
+    await expect(state.completeAssetUpload("missing", { project_id: "project_demo", object_key: intent.object_key })).rejects.toThrow("ASSET_NOT_FOUND");
+    const movIntent = await state.createAssetUploadIntent({ project_id: "project_demo", file_name: "camera", mime_type: "video/quicktime", size_bytes: 1 });
+    expect(movIntent.object_key).toMatch(/pending\.mov$/);
 
     const store = new FilesystemObjectStore(getStorageConfig());
     const key = buildObjectKey.llmRawOutput("project_demo", "request_1");
@@ -95,6 +117,11 @@ describe("P1 persistent storage", () => {
     await expect(store.deleteObject(key)).resolves.toBeUndefined();
 
     vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("DATABASE_URL", "");
+    expect(() => assertProductionStorageIsConfigured({ ...getStorageConfig(), stateDriver: "external", objectStorageProvider: "filesystem" })).toThrow("DATABASE_URL");
+    vi.stubEnv("DATABASE_URL", "postgresql://example");
+    expect(() => assertProductionStorageIsConfigured({ ...getStorageConfig(), stateDriver: "external", objectStorageProvider: "filesystem" })).not.toThrow();
+    expect(() => assertProductionStorageIsConfigured({ ...getStorageConfig(), stateDriver: "external", objectStorageProvider: "s3_compatible" })).toThrow("Missing object storage env");
     vi.stubEnv("PROMPTCUT_STATE_DRIVER", "in_memory_local_dev");
     vi.resetModules();
     await expect(import("@/server/state/persistent")).rejects.toThrow("forbidden in production");
