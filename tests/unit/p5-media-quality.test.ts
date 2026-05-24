@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { analyzeSamples } from "@/server/media-quality/audio-metrics";
 import { assertAudioNotEmpty, assertFadeTrend, assertHashChanged, assertSegmentDeltaAtMost, assertSegmentRmsAtMost, assertVideoBrightened, assertVideoNotPlaceholder } from "@/server/media-quality/p5-assertions";
 import { P5_PROMPT_CASES, P5_SMOKE_CASE_IDS } from "@/server/media-quality/p5-cases";
+import { evaluateDuckStemAssertions } from "@/server/media-quality/p5-duck-stem-assertions";
 import { P5FixtureManifestSchema, P5PromptCaseSchema, P5ReportSchema } from "@/server/media-quality/p5-schemas";
 import { analyzeRgbFrame } from "@/server/media-quality/video-metrics";
 
@@ -131,5 +132,42 @@ describe("P5 real media quality schemas and assertions", () => {
         .map((item) => `${qualityCase.id}:${item.name}`),
     );
     expect(missing).toEqual([]);
+  });
+
+  it("computes duck voice RMS delta from real before/after stem metrics", () => {
+    const result = evaluateDuckStemAssertions(
+      { name: "duck_voice_rms_delta_db", params: { max_delta: 1.5 } },
+      { voice: { before: { segmentRms: { speech: -18.2 } }, after: { segmentRms: { speech: -18.9 } } } },
+    );
+    expect(result).toMatchObject({ name: "duck_voice_rms_delta_db", passed: true, actual: 0.6999999999999993, failure_code: null });
+  });
+
+  it("fails duck voice RMS when before/after voice stem changes by more than 1.5 dB", () => {
+    const result = evaluateDuckStemAssertions(
+      { name: "duck_voice_rms_delta_db", params: { max_delta: 1.5 } },
+      { voice: { before: { segmentRms: { speech: -18 } }, after: { segmentRms: { speech: -21 } } } },
+    );
+    expect(result).toMatchObject({ name: "duck_voice_rms_delta_db", passed: false, actual: 3, failure_code: "MEDIA_ASSERTION_FAILED" });
+  });
+
+  it("fails duck voice RMS as analysis unavailable when voice stem metrics are missing", () => {
+    const result = evaluateDuckStemAssertions(
+      { name: "duck_voice_rms_delta_db", params: { max_delta: 1.5 } },
+      { voice: { before: { segmentRms: { speech: -18 } }, after: { segmentRms: {} } } },
+    );
+    expect(result).toMatchObject({ name: "duck_voice_rms_delta_db", passed: false, failure_code: "MEDIA_ANALYSIS_UNAVAILABLE" });
+  });
+
+  it("computes duck music and release deltas from music stem metrics", () => {
+    const duck = evaluateDuckStemAssertions(
+      { name: "duck_music_delta_db", params: { min: 6, max: 14, target: 9, tolerance: 2 } },
+      { music: { before: { segmentRms: { speech: -12, release: -12.4 } }, after: { segmentRms: { speech: -21, release: -12.1 } } } },
+    );
+    const release = evaluateDuckStemAssertions(
+      { name: "duck_release_baseline_delta_db", params: { max_delta: 2 } },
+      { music: { before: { segmentRms: { speech: -12, release: -12.4 } }, after: { segmentRms: { speech: -21, release: -12.1 } } } },
+    );
+    expect(duck).toMatchObject({ name: "duck_music_delta_db", passed: true, actual: 9 });
+    expect(release).toMatchObject({ name: "duck_release_baseline_delta_db", passed: true, actual: 0.3000000000000007 });
   });
 });

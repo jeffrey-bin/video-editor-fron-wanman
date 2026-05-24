@@ -11,6 +11,7 @@ import { generateCodexCliEditPlan } from "../src/server/llm/codex-cli-provider";
 import { EditPlanResponseSchema, LlmEditRequestSchema, validateEditPlanAgainstRequest, type EditPlanResponse } from "../src/server/llm/edit-plan-protocol";
 import { generateMockEditPlan } from "../src/server/llm/mock-provider";
 import { P5_PROMPT_CASES, P5_SMOKE_CASE_IDS } from "../src/server/media-quality/p5-cases";
+import { evaluateDuckStemAssertions, type P5AudioMetrics, type P5DuckStemMetrics } from "../src/server/media-quality/p5-duck-stem-assertions";
 import type { P5FailureCode, P5Fixture, P5PromptCase, P5Report } from "../src/server/media-quality/p5-schemas";
 import { P5ReportSchema } from "../src/server/media-quality/p5-schemas";
 import type { Clip, MediaAsset, Project, Timeline, Track } from "../src/types/editor";
@@ -262,6 +263,7 @@ const mediaAssertions = async (
   afterAudio: Record<string, unknown> | undefined,
   beforeVideo: Record<string, unknown> | undefined,
   afterVideo: Record<string, unknown> | undefined,
+  duckStems?: P5DuckStemMetrics,
 ) => {
   const results: AssertionResult[] = [];
   const afterSegments = afterAudio?.segmentRms as Record<string, number> | undefined;
@@ -300,26 +302,11 @@ const mediaAssertions = async (
       const max = Number(required.params.max ?? 3);
       results.push(value === undefined ? analysisAssertion("mute_boundary_jump_db", { before, after }, `<= ${max} dB`) : assertion("mute_boundary_jump_db", value <= max, value, `<= ${max} dB`));
     } else if (required.name === "duck_music_delta_db") {
-      const value = delta(afterSegments?.speech, afterSegments?.release);
-      const min = Number(required.params.min ?? 6);
-      const max = Number(required.params.max ?? 14);
-      const target = finiteNumber(required.params.target);
-      const tolerance = finiteNumber(required.params.tolerance);
-      const inDefaultBand = target === undefined || tolerance === undefined || (value !== undefined && Math.abs(value - target) <= tolerance);
-      results.push(value === undefined ? analysisAssertion("duck_music_delta_db", value, `${min}..${max} dB`, tolerance) : assertion("duck_music_delta_db", value >= min && value <= max && inDefaultBand, value, `${min}..${max} dB; default ${target}±${tolerance} dB`, "MEDIA_ASSERTION_FAILED", tolerance));
+      results.push(evaluateDuckStemAssertions(required, duckStems) ?? analysisAssertion("duck_music_delta_db", undefined, "music stem metrics"));
     } else if (required.name === "duck_release_baseline_delta_db") {
-      const sourceBaseline = finiteNumber(beforeSegments?.release);
-      const baseline = sourceBaseline === undefined ? undefined : sourceBaseline - (20 * Math.log10(2));
-      const release = finiteNumber(afterSegments?.release);
-      const value = baseline === undefined || release === undefined ? undefined : Math.abs(release - baseline);
-      const max = Number(required.params.max_delta ?? 2);
-      results.push(value === undefined ? analysisAssertion("duck_release_baseline_delta_db", { baseline, release }, `<= ${max} dB`) : assertion("duck_release_baseline_delta_db", value <= max, value, `<= ${max} dB`));
+      results.push(evaluateDuckStemAssertions(required, duckStems) ?? analysisAssertion("duck_release_baseline_delta_db", undefined, "music stem release metrics"));
     } else if (required.name === "duck_voice_rms_delta_db") {
-      const before = finiteNumber(beforeSegments?.speech);
-      const after = finiteNumber(afterSegments?.speech);
-      const value = before === undefined || after === undefined ? undefined : 0;
-      const max = Number(required.params.max_delta ?? 1.5);
-      results.push(value === undefined ? analysisAssertion("duck_voice_rms_delta_db", { before, after }, `<= ${max} dB`) : assertion("duck_voice_rms_delta_db", value <= max, value, `<= ${max} dB`));
+      results.push(evaluateDuckStemAssertions(required, duckStems) ?? analysisAssertion("duck_voice_rms_delta_db", undefined, "voice stem metrics"));
     } else if (required.name === "fade_trend") {
       const trend = afterAudio?.fadeTrend as { reverseWindows?: number } | undefined;
       const max = Number(required.params.max_reverse_windows ?? 1);
@@ -373,6 +360,37 @@ const renderThroughProductPath = async (testCase: P5PromptCase, project: Project
   const command = buildFfmpegCommand(applied.timeline, "source", resolve(repoRoot, outputPath), assets);
   const execution = await executeExport(command);
   return { appliedOperationIds: applied.appliedOperationIds, selectedOperationIds: selectedOperations.map((operation) => operation.id), execution, timeline: applied.timeline };
+};
+
+const timelineForAudioStem = (timeline: Timeline, role: "voice" | "music"): Timeline => {
+  const clone = structuredClone(timeline);
+  clone.tracks = clone.tracks.filter((track) => track.kind !== "audio" || track.role === role || track.id.includes(role));
+  return clone;
+};
+
+const renderAudioStemMetrics = async (timeline: Timeline, role: "voice" | "music", assets: MediaAsset[], outputPath: string, testCase: P5PromptCase): Promise<P5AudioMetrics | undefined> => {
+  const stemTimeline = timelineForAudioStem(timeline, role);
+  if (!stemTimeline.tracks.some((track) => track.kind === "audio" && track.clips.some((clip) => clip.kind === "audio"))) return undefined;
+  await mkdir(dirname(resolve(repoRoot, outputPath)), { recursive: true });
+  const command = buildFfmpegCommand(stemTimeline, "source", resolve(repoRoot, outputPath), assets);
+  const execution = await executeExport(command);
+  if (execution.mode !== "ffmpeg") throw new Error(`MEDIA_RENDER_FAILED: ${role} stem render failed`);
+  const probe = await ffprobeJson(outputPath);
+  return audioStream(probe) ? await analyzeOutputAudio(outputPath, testCase) : undefined;
+};
+
+const analyzeDuckStems = async (testCase: P5PromptCase, beforeTimeline: Timeline, afterTimeline: Timeline, assets: MediaAsset[], outputRoot: string): Promise<P5DuckStemMetrics | undefined> => {
+  if (!testCase.expectedOperations.includes("duck_music")) return undefined;
+  return {
+    voice: {
+      before: await renderAudioStemMetrics(beforeTimeline, "voice", assets, `${outputRoot}/${testCase.id}/stems/before-voice.mp4`, testCase),
+      after: await renderAudioStemMetrics(afterTimeline, "voice", assets, `${outputRoot}/${testCase.id}/stems/after-voice.mp4`, testCase),
+    },
+    music: {
+      before: await renderAudioStemMetrics(beforeTimeline, "music", assets, `${outputRoot}/${testCase.id}/stems/before-music.mp4`, testCase),
+      after: await renderAudioStemMetrics(afterTimeline, "music", assets, `${outputRoot}/${testCase.id}/stems/after-music.mp4`, testCase),
+    },
+  };
 };
 
 const runCase = async (testCase: P5PromptCase, fixtureById: Map<string, P5Fixture>, provider: ProviderName, outputRoot: string) => {
@@ -444,7 +462,8 @@ const runCase = async (testCase: P5PromptCase, fixtureById: Map<string, P5Fixtur
     const outputProbe = await ffprobeJson(outputPath);
     const afterAudio = audioStream(outputProbe) ? await analyzeOutputAudio(outputPath, testCase) : undefined;
     const afterVideo = needsVideoMetrics && videoStream(outputProbe) ? await analyzeVideo(outputPath) : undefined;
-    const media = await mediaAssertions(testCase, inputSha, outputSha, beforeAudio, afterAudio, beforeVideo, afterVideo);
+    const duckStems = await analyzeDuckStems(testCase, project.timeline, exported.timeline, assets, outputRoot);
+    const media = await mediaAssertions(testCase, inputSha, outputSha, beforeAudio, afterAudio, beforeVideo, afterVideo, duckStems);
     const applyAssertions = [
       assertion("dry_run_and_apply_operation_ids_match", exported.appliedOperationIds.length === exported.selectedOperationIds.length, exported.appliedOperationIds, exported.selectedOperationIds, "MEDIA_PROVIDER_INVALID_PLAN"),
       assertion("selected_operation_ids_applied", exported.appliedOperationIds.join(",") === exported.selectedOperationIds.join(","), exported.appliedOperationIds, exported.selectedOperationIds, "MEDIA_PROVIDER_INVALID_PLAN"),
@@ -462,8 +481,8 @@ const runCase = async (testCase: P5PromptCase, fixtureById: Map<string, P5Fixtur
       input_sha256: inputSha,
       output_sha256: outputSha,
       output_path: rel(resolve(repoRoot, outputPath)),
-      metrics_before: { audio: beforeAudio, video: beforeVideo },
-      metrics_after: { audio: afterAudio, video: afterVideo },
+      metrics_before: { audio: beforeAudio, video: beforeVideo, duck_stems: duckStems ? { voice: duckStems.voice?.before, music: duckStems.music?.before } : undefined },
+      metrics_after: { audio: afterAudio, video: afterVideo, duck_stems: duckStems ? { voice: duckStems.voice?.after, music: duckStems.music?.after } : undefined },
       assertions,
       failure_code: failed[0]?.failure_code ?? null,
       warnings,
