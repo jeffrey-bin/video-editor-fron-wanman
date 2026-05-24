@@ -59,4 +59,39 @@ describe("timeline ops", () => {
     overlap.tracks[0].clips.push({ id: "clip2", trackId: "video_main", kind: "video", assetId: "asset2", startMs: 6000, endMs: 9000, sourceStartMs: 0, sourceEndMs: 3000 });
     expect(() => dryRunEditPlan(overlap, [{ id: "move-overlap", type: "move_clip", target: { clip_id: "clip2" }, params: { start_ms: 2000 }, rationale: "重叠" }])).toThrow("重叠片段");
   });
+
+  it("covers trim, subtitle update, audio adjustment and export preset warnings", () => {
+    const base = timeline();
+    base.tracks[2].clips.push({ id: "sub", trackId: "subtitles", kind: "subtitle", startMs: 1000, endMs: 2000, sourceStartMs: 1000, sourceEndMs: 2000, text: "旧字幕" });
+    const result = applyEditOperations(base, [
+      { id: "trim", type: "trim_clip", target: { clip_id: "clip" }, params: { timeline_start_ms: 100, timeline_end_ms: 9000, source_start_ms: 100, source_end_ms: 9000 }, rationale: "修剪" },
+      { id: "sub-update", type: "update_subtitle", target: { subtitle_id: "sub" }, params: { start_ms: 1200, end_ms: 2200, text: "新字幕" }, rationale: "更新字幕" },
+      { id: "audio-adjust", type: "adjust_audio", target: { clip_id: "audio" }, params: { muted: true, normalize: true }, rationale: "静音" },
+      { id: "preset", type: "set_export_preset", target: { project_id: "project" }, params: { preset: "720p_preview" }, rationale: "导出" },
+    ], { requestId: "req", summary: "覆盖更多操作" });
+    expect(result.timeline.tracks[0].clips[0].startMs).toBe(100);
+    expect(result.timeline.tracks[2].clips[0].text).toBe("新字幕");
+    expect(result.timeline.tracks[1].clips[0].muted).toBe(true);
+    expect(result.warnings[0]).toContain("720p_preview");
+  });
+
+  it("handles delete-range edge cases and rejects malformed source ranges", () => {
+    const splitDelete = timeline();
+    const result = applyEditOperations(splitDelete, [
+      { id: "middle", type: "delete_range", target: { start_ms: 3000, end_ms: 6000, track_id: "video_main" }, params: { ripple: false }, rationale: "删除中段" },
+    ], { requestId: "req", summary: "delete" });
+    expect(result.timeline.tracks[0].clips).toHaveLength(2);
+    expect(result.timeline.tracks[0].clips[1].startMs).toBe(6000);
+
+    const shifted = timeline();
+    shifted.tracks[0].clips.push({ id: "later", trackId: "video_main", kind: "video", assetId: "asset2", startMs: 12000, endMs: 15000, sourceStartMs: 0, sourceEndMs: 3000 });
+    shifted.durationMs = 16000;
+    const ripple = applyEditOperations(shifted, [
+      { id: "ripple", type: "delete_range", target: { start_ms: 10000, end_ms: 11000, track_id: "video_main" }, params: { ripple: true }, rationale: "波纹删除" },
+    ], { requestId: "req", summary: "ripple" });
+    expect(ripple.timeline.tracks[0].clips[1].startMs).toBe(11000);
+
+    expect(() => dryRunEditPlan(timeline(), [{ id: "bad-source", type: "trim_clip", target: { clip_id: "clip" }, params: { source_start_ms: 500, source_end_ms: 100 }, rationale: "源错误" }])).toThrow("源时间范围无效");
+    expect(() => dryRunEditPlan(timeline(), [{ id: "missing-track", type: "delete_range", target: { start_ms: 0, end_ms: 100, track_id: "missing" }, params: { ripple: true }, rationale: "缺轨" }])).toThrow("找不到要删除的轨道");
+  });
 });

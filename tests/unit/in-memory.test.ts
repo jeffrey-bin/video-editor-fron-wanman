@@ -77,4 +77,22 @@ describe("in-memory P0 orchestration", () => {
     expect(job?.status).toBe("failed");
     expect(job?.error?.code).toBe("LLM_PROCESS_FAILED");
   });
+
+  it("records invalid plans, stale plans and failed exports without mutating state", async () => {
+    const project = getProject("project_demo");
+    const missingMediaExport = await createExportJob({ project_id: project.id, preset: "1080p_landscape", ignorePendingPlan: true });
+    expect(getJob(missingMediaExport.job_id)?.status).toBe("failed");
+    expect(getJob(missingMediaExport.job_id)?.error?.code).toBe("EXPORT_FAILED");
+
+    await addAssetToProject(project.id, { name: "demo.mp4", type: "video/mp4", bytes: new Uint8Array() });
+    vi.stubEnv("LLM_PROVIDER", "unsupported");
+    const failedProviderJob = await createPromptEditJob({ project_id: project.id, timeline_version: project.timeline.version, prompt: "生成方案", locale: "zh-CN" });
+    expect(getJob(failedProviderJob.job_id)?.error?.code).toBe("LLM_PROVIDER_UNSUPPORTED");
+    vi.unstubAllEnvs();
+
+    const staleVersion = project.timeline.version - 1;
+    const staleJob = await createPromptEditJob({ project_id: project.id, timeline_version: staleVersion, prompt: "生成方案", locale: "zh-CN" });
+    expect((getJob(staleJob.job_id)?.output as { plan_state: string }).plan_state).toBe("stale");
+    expect(() => applyPendingPlan(project.id, { request_id: staleJob.request_id, timeline_version: staleVersion })).toThrow("方案当前不可应用");
+  });
 });

@@ -78,7 +78,9 @@ export const addAssetToProject = async (projectId: string, file: { name: string;
   await mkdir(mediaDir, { recursive: true });
   const extension = isAudio ? "m4a" : "mp4";
   const filePath = join(mediaDir, `original.${extension}`);
-  const bytes = file.bytes ? Buffer.from(file.bytes) : Buffer.from(`PromptCut local dev media placeholder: ${file.name}\n`);
+  const bytes = file.bytes
+    ? Buffer.from(file.bytes instanceof ArrayBuffer ? new Uint8Array(file.bytes) : file.bytes)
+    : Buffer.from(`PromptCut local dev media placeholder: ${file.name}\n`);
   await writeFile(filePath, bytes.length > 0 ? bytes : Buffer.from(`PromptCut empty upload placeholder: ${file.name}\n`));
   const asset: MediaAsset = {
     id,
@@ -113,10 +115,6 @@ export const addAssetToProject = async (projectId: string, file: { name: string;
   project.timeline.version += 1;
   project.updatedAt = now();
   return asset;
-};
-
-export const addAssetMetadataToProject = (projectId: string, asset: MediaAsset) => {
-  assets.set(projectId, [...listAssets(projectId), asset]);
 };
 
 const putJob = (job: JobRecord) => {

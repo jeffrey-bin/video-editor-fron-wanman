@@ -4,6 +4,8 @@ import type { EditPlanResponse, LlmEditRequest } from "@/server/llm/edit-plan-pr
 const firstEditableClip = (input: LlmEditRequest) =>
   input.context.clips.find((clip) => clip.kind === "video") ?? input.context.clips.find((clip) => clip.kind === "audio");
 
+const firstAudioClip = (input: LlmEditRequest) => input.context.clips.find((clip) => clip.kind === "audio");
+
 export const generateMockEditPlan = async (input: LlmEditRequest): Promise<EditPlanResponse> => {
   const prompt = input.user_intent.prompt;
   const clip = firstEditableClip(input);
@@ -42,13 +44,16 @@ export const generateMockEditPlan = async (input: LlmEditRequest): Promise<EditP
     });
   }
   if (/人声|降噪|噪声|声音|音频|增强/.test(prompt)) {
-    operations.push({
-      id: "op_audio_enhance",
-      type: "adjust_audio",
-      target: { clip_id: clip.id },
-      params: { normalize: true, volume_db: 2 },
-      rationale: "对人声做响度标准化并略微增益。",
-    });
+    const audioClip = firstAudioClip(input);
+    if (audioClip) {
+      operations.push({
+        id: "op_audio_enhance",
+        type: "adjust_audio",
+        target: { clip_id: audioClip.id },
+        params: { normalize: true, volume_db: 2 },
+        rationale: "对人声做响度标准化并略微增益。",
+      });
+    }
   }
   if (/字幕|断句|caption/i.test(prompt)) {
     operations.push({
