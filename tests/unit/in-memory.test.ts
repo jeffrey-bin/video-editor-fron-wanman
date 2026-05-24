@@ -1,4 +1,5 @@
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { addAssetToProject, applyPendingPlan, createExportJob, createPromptEditJob, getJob, getProject, listAssets, resetInMemoryStateForTests } from "@/server/state/in-memory";
 
@@ -12,9 +13,11 @@ describe("in-memory P0 orchestration", () => {
   });
 
   it("imports media, generates a plan, applies it and exports", async () => {
+    vi.stubEnv("FFMPEG_BIN", join(process.cwd(), "tests/fixtures/fake-ffmpeg.mjs"));
+    vi.stubEnv("FFPROBE_BIN", join(process.cwd(), "tests/fixtures/fake-ffprobe.mjs"));
     const project = getProject("project_demo");
     const initialVersion = project.timeline.version;
-    const asset = await addAssetToProject(project.id, { name: "demo.mp4", type: "video/mp4", bytes: Buffer.from("not-real-video") });
+    const asset = await addAssetToProject(project.id, { name: "demo.mp4", type: "video/mp4", bytes: await readFile(join(process.cwd(), "tests/fixtures/minimal-real.mp4")) });
     expect(asset.kind).toBe("video");
     expect(asset.filePath).toContain(".promptcut-runtime");
     expect(listAssets(project.id).some((item) => item.id === asset.id)).toBe(true);
@@ -37,6 +40,7 @@ describe("in-memory P0 orchestration", () => {
     const exportRecord = getJob(exportJob.job_id);
     expect(exportRecord?.status).toBe("succeeded");
     const exportOutput = exportRecord?.output as { export_path: string; file_size_bytes: number; mode: string };
+    expect(exportOutput.mode).toBe("ffmpeg");
     expect(exportOutput.file_size_bytes).toBeGreaterThan(0);
     expect((await stat(exportOutput.export_path)).size).toBeGreaterThan(0);
     expect(JSON.stringify(exportRecord?.output)).toContain("renderPlan");
