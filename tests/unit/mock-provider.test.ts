@@ -32,8 +32,9 @@ describe("mock provider", () => {
 
   it("returns capability boundary for unsupported generative intent", async () => {
     const plan = await generateMockEditPlan(baseRequest("把人物换成卡通形象"));
+    expect(plan.status).toBe("partial");
     expect(plan.unsupported_intents[0]?.reason).toContain("P0");
-    expect(plan.operations[0]?.type).toBe("add_subtitle");
+    expect(plan.operations).toHaveLength(0);
   });
 
   it("fails safely without editable media", async () => {

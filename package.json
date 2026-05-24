@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:prompt-quality": "vitest run tests/unit/prompt-edit-quality-eval.test.ts",
     "test:e2e": "PLAYWRIGHT_BROWSERS_PATH=.ms-playwright playwright test",
     "playwright:install": "PLAYWRIGHT_BROWSERS_PATH=.ms-playwright playwright install chromium"
   },
