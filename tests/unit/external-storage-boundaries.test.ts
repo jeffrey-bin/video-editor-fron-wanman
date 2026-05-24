@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,6 +7,7 @@ const sendMock = vi.fn(async () => ({}));
 const addMock = vi.fn(async () => undefined);
 const closeMock = vi.fn(async () => undefined);
 const workerMock = vi.fn();
+const workerProcessors = new Map<string, (job: { data: { jobId: string } }) => Promise<void>>();
 
 vi.mock("@aws-sdk/client-s3", () => ({
   S3Client: vi.fn(() => ({ send: sendMock })),
@@ -24,6 +25,7 @@ vi.mock("bullmq", () => ({
   Queue: vi.fn(() => ({ add: addMock, close: closeMock })),
   Worker: vi.fn((queueName, processor, options) => {
     workerMock(queueName, processor, options);
+    workerProcessors.set(queueName, processor);
     return { queueName, close: vi.fn() };
   }),
 }));
@@ -42,10 +44,14 @@ describe("external storage, S3 and queue boundaries", () => {
     addMock.mockClear();
     closeMock.mockClear();
     workerMock.mockClear();
+    workerProcessors.clear();
     vi.stubEnv("PROMPTCUT_RUNTIME_ROOT", dir);
     vi.stubEnv("PROMPTCUT_STATE_DRIVER", "durable_fs");
     vi.stubEnv("OBJECT_STORAGE_PROVIDER", "filesystem");
     vi.stubEnv("LLM_PROVIDER", "mock");
+    vi.stubEnv("FFMPEG_BIN", join(process.cwd(), "tests/fixtures/fake-ffmpeg.mjs"));
+    vi.stubEnv("FFPROBE_BIN", join(process.cwd(), "tests/fixtures/fake-ffprobe.mjs"));
+    await Promise.all([chmod(process.env.FFMPEG_BIN!, 0o755), chmod(process.env.FFPROBE_BIN!, 0o755)]);
   });
 
   afterEach(async () => {
@@ -137,6 +143,7 @@ describe("external storage, S3 and queue boundaries", () => {
   it("repairs expired leases so another worker instance can retry or mark stalled", async () => {
     const state = await loadPersistent();
     await state.resetPersistentStateForTests();
+    await state.addAssetToProject("project_demo", { name: "clip.mp4", type: "video/mp4", bytes: await readFile(join(process.cwd(), "tests/fixtures/minimal-real.mp4")) });
     const exportJob = await state.createExportJob({ project_id: "project_demo", preset: "1080p_landscape", ignorePendingPlan: true });
     const statePath = join(dir, "state", "promptcut-state.json");
     const database = JSON.parse(await readFile(statePath, "utf8"));
@@ -147,5 +154,31 @@ describe("external storage, S3 and queue boundaries", () => {
     await import("node:fs/promises").then((fs) => fs.writeFile(statePath, `${JSON.stringify(database, null, 2)}\n`));
     await expect(state.repairStalledJobs()).resolves.toMatchObject({ repaired_job_ids: [exportJob.job_id] });
     expect((await state.getJob(exportJob.job_id))?.status).toBe("queued");
+  });
+
+  it("requeues repaired leases and lets a worker execute the recovered job", async () => {
+    const state = await loadPersistent();
+    await state.resetPersistentStateForTests();
+    await state.addAssetToProject("project_demo", { name: "clip.mp4", type: "video/mp4", bytes: await readFile(join(process.cwd(), "tests/fixtures/minimal-real.mp4")) });
+    const exportJob = await state.createExportJob({ project_id: "project_demo", preset: "1080p_landscape", ignorePendingPlan: true });
+    const statePath = join(dir, "state", "promptcut-state.json");
+    const database = JSON.parse(await readFile(statePath, "utf8"));
+    database.jobs[exportJob.job_id].status = "running";
+    database.jobs[exportJob.job_id].progress = 40;
+    database.jobs[exportJob.job_id].attempts = 0;
+    database.jobs[exportJob.job_id].leaseOwner = "worker-a";
+    database.jobs[exportJob.job_id].leaseExpiresAt = new Date(Date.now() - 1000).toISOString();
+    await import("node:fs/promises").then((fs) => fs.writeFile(statePath, `${JSON.stringify(database, null, 2)}\n`));
+
+    vi.stubEnv("PROMPTCUT_STATE_DRIVER", "external");
+    vi.stubEnv("DATABASE_URL", "postgresql://user:pass@db.example/promptcut");
+    vi.stubEnv("REDIS_URL", "redis://redis.example:6379");
+    const { createPromptCutWorkers, repairAndRequeueStalledJobs } = await import("@/server/workers/promptcut-worker");
+
+    await expect(repairAndRequeueStalledJobs()).resolves.toMatchObject({ repaired_job_ids: [exportJob.job_id], requeued_job_ids: [exportJob.job_id] });
+    expect(addMock).toHaveBeenCalledWith("timeline_export", { jobId: exportJob.job_id }, expect.objectContaining({ jobId: exportJob.job_id }));
+    createPromptCutWorkers();
+    await workerProcessors.get("timeline_export")?.({ data: { jobId: exportJob.job_id } });
+    await expect(state.getJob(exportJob.job_id)).resolves.toMatchObject({ status: "succeeded", progress: 100 });
   });
 });
