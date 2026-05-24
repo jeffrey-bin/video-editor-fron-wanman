@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+/* eslint-env node */
+/* global console, process */
 import { analyzeAudio, analyzeVideo, loadManifest, writeJson } from "./p5-media-lib.mjs";
 
 const arg = (name, fallback) => {

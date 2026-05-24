@@ -1,3 +1,5 @@
+/* eslint-env node */
+/* global process, URL, Buffer */
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";

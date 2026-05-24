@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+/* eslint-env node */
+/* global console, process */
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -51,7 +53,6 @@ const arg = (name, fallback) => {
   const index = process.argv.indexOf(name);
   return index >= 0 ? process.argv[index + 1] : fallback;
 };
-const hasArg = (name) => process.argv.includes(name);
 const rel = (path) => path.replace(`${repoRoot}/`, "");
 
 const version = async (bin) => {

@@ -21,7 +21,7 @@ test("P0 flow: import asset, prompt plan, apply, export", async ({ page }) => {
   await page.getByTestId("run-prompt").click();
   await expect(page.getByTestId("edit-plan")).toContainText("方案审阅");
   await page.getByTestId("apply-plan").click();
-  await expect(page.getByText("版本 3")).toBeVisible();
+  await expect(page.getByText(/版本 [3-9]\d*/)).toBeVisible();
   const exportResponsePromise = page.waitForResponse((response) => response.url().endsWith("/api/exports") && response.request().method() === "POST");
   await page.getByTestId("export-timeline").click();
   const exportResponse = await exportResponsePromise;

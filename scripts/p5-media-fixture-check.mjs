@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+/* eslint-env node */
+/* global console, process */
 import { access } from "node:fs/promises";
 import { resolve } from "node:path";
 import { analyzeAudio, analyzeVideo, audioStream, fileSize, ffprobeJson, loadManifest, mediaDurationMs, repoRoot, videoStream } from "./p5-media-lib.mjs";

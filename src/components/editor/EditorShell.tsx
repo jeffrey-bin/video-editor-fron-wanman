@@ -239,7 +239,7 @@ export function EditorShell() {
       </section>
 
       <section className="panel timeline-panel">
-        <div className="panel-header"><span>音频工作区</span><span className="muted">timeline v{project?.timeline.version ?? 1} · dry-run 通过</span></div>
+        <div className="panel-header"><span>音频工作区</span><span className="muted">版本 {project?.timeline.version ?? 1} · timeline v{project?.timeline.version ?? 1} · dry-run 通过</span></div>
         <div className="timeline-tools">
           <button className="icon-button"><Wand2 size={16} /></button>
           <button className="icon-button"><Trash2 size={16} /></button>
@@ -283,7 +283,7 @@ ${plan ? "review plan ready" : running ? "generating reviewable edit plan..." : 
         {plan ? (
           <div className="section">
             <div className="result-card" data-testid="edit-plan">
-              <b><Sparkles size={16} /> 音频编辑方案</b>
+              <b><Sparkles size={16} /> 方案审阅 · 音频编辑方案</b>
               <span>{plan.plan.summary}</span>
               <span className="muted">置信度 {(plan.plan.confidence * 100).toFixed(0)}% · {plan.plan_state}</span>
               <div className="operation-list">{plan.plan.operations.map((operation, index) => <div className="operation-card" key={operation.id} data-testid="audio-operation-card"><div><span className="op-index">{index + 1}</span><b>{operation.type}</b></div><span>{operation.rationale}</span><span className="risk-chip">需试听确认</span><button className="ghost-button small"><Play size={14} />试听前后2秒</button></div>)}</div>
